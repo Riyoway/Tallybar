@@ -125,6 +125,9 @@ internal sealed class SettingsWindow : Form
         _rows.Add(new Stepper("Warn at", 10, 99, 5, () => (int)(_s.WarnAt * 100), v => _s.WarnAt = v / 100.0, v => $"{v}%"));
         _rows.Add(new Stepper("Critical at", 10, 100, 5, () => (int)(_s.CritAt * 100), v => _s.CritAt = v / 100.0, v => $"{v}%"));
         _rows.Add(new Toggle("Animations", () => _s.Animations, v => _s.Animations = v));
+        _rows.Add(new Segment("Animation style", ["Pulse", "Gradient", "Rainbow"],
+            () => Array.IndexOf(new[] { "pulse", "gradient", "rainbow" }, _s.AnimationStyle) is var i && i >= 0 ? i : 0,
+            i => _s.AnimationStyle = new[] { "pulse", "gradient", "rainbow" }[i]));
 
         _rows.Add(new Section("Behavior"));
         _rows.Add(new Stepper("Poll every", 30, 900, 30, () => _s.PollSeconds, v => _s.PollSeconds = v, v => $"{v}s"));
@@ -141,10 +144,12 @@ internal sealed class SettingsWindow : Form
 
     private void Place()
     {
-        int width = (int)(360 * _sc);
+        int width = (int)(340 * _sc);
         Rectangle wa = Screen.FromRectangle(_anchor).WorkingArea;
         int desired = (int)(HeaderH + _contentHeight);
-        int height = Math.Min(desired, wa.Height - (int)(16 * _sc));
+        // Keep the flyout compact: cap to ~440dip, and never taller than the work area.
+        int cap = Math.Min(wa.Height - (int)(16 * _sc), (int)(440 * _sc));
+        int height = Math.Min(desired, cap);
         int x = Math.Max(wa.Left + 8, Math.Min(_anchor.Right - width, wa.Right - width - 8));
         int y = Math.Max(wa.Top + 8, _anchor.Top - height - (int)(10 * _sc));
         SetBounds(x, y, width, height);
@@ -335,7 +340,7 @@ internal sealed class SettingsWindow : Form
 
     private sealed class Section(string title) : Row
     {
-        public override float Height(float s) => 30 * s;
+        public override float Height(float s) => 26 * s;
         public override void Paint(Graphics g, SettingsWindow w)
         {
             using var f = new Font("Segoe UI", 8.5f * w.Sc, FontStyle.Bold, GraphicsUnit.Pixel);
@@ -350,7 +355,7 @@ internal sealed class SettingsWindow : Form
 
     private sealed class Toggle(string label, Func<bool> get, Action<bool> set, bool save = true) : Row
     {
-        public override float Height(float s) => 34 * s;
+        public override float Height(float s) => 30 * s;
 
         private RectangleF Switch(SettingsWindow w)
         {
@@ -385,7 +390,7 @@ internal sealed class SettingsWindow : Form
     {
         private readonly RectangleF[] _rects = new RectangleF[options.Length];
 
-        public override float Height(float s) => 34 * s;
+        public override float Height(float s) => 30 * s;
 
         private void Compute(SettingsWindow w, Graphics? g)
         {
@@ -460,7 +465,7 @@ internal sealed class SettingsWindow : Form
     {
         private RectangleF _minus, _plus;
 
-        public override float Height(float s) => 34 * s;
+        public override float Height(float s) => 30 * s;
 
         private void Compute(SettingsWindow w)
         {
@@ -514,7 +519,7 @@ internal sealed class SettingsWindow : Form
     {
         private RectangleF _swatch;
 
-        public override float Height(float s) => 34 * s;
+        public override float Height(float s) => 30 * s;
 
         private void Compute(SettingsWindow w)
         {

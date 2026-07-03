@@ -35,6 +35,7 @@ public sealed class Settings
     public double WarnAt { get; set; } = 0.75;
     public double CritAt { get; set; } = 0.90;
     public bool Animations { get; set; } = true;
+    public string AnimationStyle { get; set; } = "pulse"; // pulse | gradient | rainbow
 
     // --- behavior ---
     public int PollSeconds { get; set; } = 60;
@@ -78,6 +79,7 @@ public sealed class Settings
         PollSeconds = Math.Clamp(PollSeconds, 30, 900);
         WarnAt = Math.Clamp(WarnAt, 0.1, 0.99);
         CritAt = Math.Clamp(CritAt, WarnAt, 1.0);
+        if (AnimationStyle is not ("pulse" or "gradient" or "rainbow")) AnimationStyle = "pulse";
     }
 
     private static string FilePath => Path.Combine(

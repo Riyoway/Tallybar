@@ -28,8 +28,8 @@ can plan a long agent run around your reset window at a glance.
 - **Drag to place, drag edges to resize**: slide the strip anywhere along the taskbar
   and pull its left/top edge to size it; both stick across restarts.
 - **Customizable**: which items show, colors, thresholds, corner radius, opacity,
-  animations, poll interval, launch at login, secondary-monitor strips — all in a
-  live-preview settings window.
+  animation style (pulse / gradient / rainbow), poll interval, launch at login,
+  secondary-monitor strips — all in a live-preview settings flyout.
 - **Tray mini-gauge**: the notification-area icon renders live usage bars, so the
   numbers survive even where the overlay can't attach.
 

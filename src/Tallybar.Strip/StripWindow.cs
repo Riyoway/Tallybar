@@ -192,9 +192,14 @@ internal sealed class StripWindow : Form
         _settings.Animations && !double.IsNaN(_fraction) && !double.IsNaN(_shownFraction) &&
         Math.Abs(_fraction - _shownFraction) > 0.002;
 
+    // Gradient / rainbow styles repaint continuously while there is live data.
+    private bool NeedsColorAnim =>
+        _settings.Animations && _status is FetchStatus.Ok or FetchStatus.Stale &&
+        !double.IsNaN(_fraction) && _settings.AnimationStyle is "gradient" or "rainbow";
+
     private void UpdateAnimTimer()
     {
-        bool need = NeedsPulse || NeedsEase;
+        bool need = NeedsPulse || NeedsEase || NeedsColorAnim;
         if (need && !_anim.Enabled) _anim.Start();
         else if (!need && _anim.Enabled) _anim.Stop();
         if (!_settings.Animations) _shownFraction = _fraction;
@@ -447,10 +452,49 @@ internal sealed class StripWindow : Form
         _ => Color.FromArgb(120, 128, 140), // stale / offline gray
     };
 
+    // 0..1 animation phase from wall-clock, ~5s per loop (deterministic; no stored state).
+    private static double AnimPhase => Environment.TickCount64 % 5000 / 5000.0;
+
+    private bool ColorAnimActive =>
+        _settings.Animations && _status is FetchStatus.Ok or FetchStatus.Stale && !double.IsNaN(_fraction);
+
+    /// <summary>The colour used for line/percent/dot, animated when a style is active.</summary>
+    private Color AccentTone(Color stateColor) => (ColorAnimActive ? _settings.AnimationStyle : "pulse") switch
+    {
+        "rainbow" => FromHsv(AnimPhase, 0.72, 1.0),
+        "gradient" => Lerp(_settings.Ok, _settings.Crit, PingPong(AnimPhase)),
+        _ => stateColor,
+    };
+
+    private static double PingPong(double t) => 1 - Math.Abs(t * 2 - 1);
+
+    private static Color Lerp(Color a, Color b, double t) => Color.FromArgb(
+        (int)(a.R + (b.R - a.R) * t),
+        (int)(a.G + (b.G - a.G) * t),
+        (int)(a.B + (b.B - a.B) * t));
+
+    private static Color FromHsv(double h, double s, double v)
+    {
+        h = (h % 1 + 1) % 1 * 6;
+        int i = (int)h;
+        double f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+        (double r, double g, double b) = i switch
+        {
+            0 => (v, t, p),
+            1 => (q, v, p),
+            2 => (p, v, t),
+            3 => (p, q, v),
+            4 => (t, p, v),
+            _ => (v, p, q),
+        };
+        return Color.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
+    }
+
     private Bitmap Render(int width, int height, double scale)
     {
         bool light = IsLightTheme(_settings);
-        Color tone = StateColor();
+        Color state = StateColor();
+        Color tone = AccentTone(state); // animated (gradient/rainbow) when a style is active
         bool dim = _status is not FetchStatus.Ok;
         double shown = double.IsNaN(_shownFraction) ? _fraction : _shownFraction;
 
@@ -556,8 +600,32 @@ internal sealed class StripWindow : Form
         area[n + 1] = new PointF(r.Left, r.Bottom);
         using (var fill = new SolidBrush(Color.FromArgb(dim ? 20 : 45, tone)))
             g.FillPolygon(fill, area);
-        using (var pen = new Pen(Color.FromArgb(alpha, tone), 1.6f) { LineJoin = LineJoin.Round })
+
+        string style = ColorAnimActive ? _settings.AnimationStyle : "pulse";
+        if (style == "rainbow")
+        {
+            // Moving spectrum along the line: each segment a shifting hue.
+            for (int i = 0; i < n - 1; i++)
+            {
+                Color c = FromHsv((double)i / (n - 1) + AnimPhase, 0.72, 1.0);
+                using var pen = new Pen(Color.FromArgb(alpha, c), 1.6f) { LineJoin = LineJoin.Round };
+                g.DrawLine(pen, pts[i], pts[i + 1]);
+            }
+        }
+        else if (style == "gradient")
+        {
+            // A gradient that sweeps across the sparkline over time.
+            using var lgb = new LinearGradientBrush(r, _settings.Ok, _settings.Crit, LinearGradientMode.Horizontal)
+            { WrapMode = WrapMode.TileFlipX };
+            lgb.TranslateTransform((float)(AnimPhase * r.Width), 0);
+            using var pen = new Pen(lgb, 1.6f) { LineJoin = LineJoin.Round };
             g.DrawLines(pen, pts);
+        }
+        else
+        {
+            using var pen = new Pen(Color.FromArgb(alpha, tone), 1.6f) { LineJoin = LineJoin.Round };
+            g.DrawLines(pen, pts);
+        }
 
         // Endpoint dot; pulses gently when the window is nearly exhausted.
         PointF end = pts[n - 1];
