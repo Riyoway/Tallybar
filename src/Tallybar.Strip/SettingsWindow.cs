@@ -27,7 +27,9 @@ internal sealed class SettingsWindow : Form
     private RectangleF _closeRect;
     private bool _closeHot;
     private float _scroll;
+    private float _scrollTarget;
     private float _contentHeight;
+    private readonly System.Windows.Forms.Timer _scrollAnim = new() { Interval = 15 };
     private float HeaderH => 44 * _sc;
     private float Pad => 14 * _sc;
 
@@ -61,6 +63,8 @@ internal sealed class SettingsWindow : Form
         KeyPreview = true;
         DoubleBuffered = true;
         BackColor = Base;
+
+        _scrollAnim.Tick += (_, _) => ScrollTick();
 
         BuildRows();
         Layout_();
@@ -172,7 +176,23 @@ internal sealed class SettingsWindow : Form
     {
         base.OnMouseWheel(e);
         if (MaxScroll <= 0) return;
-        _scroll = Math.Clamp(_scroll - e.Delta * 0.5f, 0, MaxScroll);
+        // Aim at a target; the timer eases the actual position toward it for smoothness.
+        _scrollTarget = Math.Clamp(_scrollTarget - e.Delta * 0.7f, 0, MaxScroll);
+        if (!_scrollAnim.Enabled) _scrollAnim.Start();
+    }
+
+    private void ScrollTick()
+    {
+        float d = _scrollTarget - _scroll;
+        if (Math.Abs(d) < 0.5f)
+        {
+            _scroll = _scrollTarget;
+            _scrollAnim.Stop();
+        }
+        else
+        {
+            _scroll += d * 0.22f; // exponential ease-out
+        }
         Invalidate();
     }
 
@@ -316,6 +336,8 @@ internal sealed class SettingsWindow : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        _scrollAnim.Stop();
+        _scrollAnim.Dispose();
         if (_open == this) _open = null;
         base.OnFormClosed(e);
     }
