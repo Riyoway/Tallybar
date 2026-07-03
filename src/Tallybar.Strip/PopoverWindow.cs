@@ -216,17 +216,23 @@ internal sealed class PopoverWindow : Form
         string age = newest is { } t ? $"updated {Math.Max(0, (int)(DateTimeOffset.UtcNow - t).TotalSeconds)}s ago" : "";
         g.DrawString(age, fSmall, mutB, pad, Height - 27 * s);
 
-        string refresh = "↻ refresh", settings = "⚙ settings";
-        SizeF setSz = g.MeasureString(settings, fTitle);
-        SizeF refSz = g.MeasureString(refresh, fTitle);
-        _settingsRect = new Rectangle((int)(Width - pad - setSz.Width), (int)(Height - 28 * s),
-            (int)setSz.Width + 4, (int)setSz.Height + 4);
-        _refreshRect = new Rectangle((int)(_settingsRect.Left - refSz.Width - 14 * s), _settingsRect.Top,
-            (int)refSz.Width + 4, (int)refSz.Height + 4);
-
+        // Footer actions: system icon-font glyph + label.
+        float glyphPx = 12 * s, gap = 5 * s;
+        using Font fIcon = Icons.GetFont(glyphPx);
         using var accent = new SolidBrush(_settings.Ok);
-        g.DrawString(refresh, fTitle, accent, _refreshRect.Left, _refreshRect.Top);
-        g.DrawString(settings, fTitle, accent, _settingsRect.Left, _settingsRect.Top);
+
+        float setW = g.MeasureString(Icons.Settings, fIcon).Width - 4 + gap
+                   + g.MeasureString("Settings", fTitle).Width;
+        float refW = g.MeasureString(Icons.Refresh, fIcon).Width - 4 + gap
+                   + g.MeasureString("Refresh", fTitle).Width;
+        int actionY = (int)(Height - 28 * s);
+        _settingsRect = new Rectangle((int)(Width - pad - setW), actionY, (int)setW + 4, (int)(16 * s));
+        _refreshRect = new Rectangle((int)(_settingsRect.Left - refW - 16 * s), actionY, (int)refW + 4, (int)(16 * s));
+
+        float x1 = _refreshRect.Left + Icons.Draw(g, Icons.Refresh, glyphPx, accent, _refreshRect.Left, actionY + 1 * s);
+        g.DrawString("Refresh", fTitle, accent, x1 + gap, actionY);
+        float x2 = _settingsRect.Left + Icons.Draw(g, Icons.Settings, glyphPx, accent, _settingsRect.Left, actionY + 1 * s);
+        g.DrawString("Settings", fTitle, accent, x2 + gap, actionY);
     }
 
     private static void FillRounded(Graphics g, Brush brush, RectangleF r, float radius)

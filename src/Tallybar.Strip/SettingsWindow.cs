@@ -36,6 +36,7 @@ internal sealed class SettingsWindow : Form
         Color ink = light ? Color.FromArgb(25, 28, 36) : Color.FromArgb(233, 236, 244);
 
         Text = "Tallybar settings";
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;

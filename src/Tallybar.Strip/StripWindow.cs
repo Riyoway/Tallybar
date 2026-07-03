@@ -501,7 +501,17 @@ internal sealed class StripWindow : Form
             if (_settings.ShowPercent)
                 g.DrawString(pct, f1, toneBrush, tx, line1Y);
             if (twoLines)
-                g.DrawString(_subText, f2, mutBrush, new RectangleF(x, height * 0.52f, w, f2.Height), fmt);
+            {
+                float sy = height * 0.52f, sx = x;
+                string sub = _subText;
+                if (sub.StartsWith("↻ ", StringComparison.Ordinal))
+                {
+                    // Countdown marker as a crisp icon-font clock instead of a text glyph.
+                    sub = sub[2..];
+                    sx += Icons.Draw(g, Icons.Clock, f2.Size * 0.92f, mutBrush, sx, sy + f2.Size * 0.08f) + 2;
+                }
+                g.DrawString(sub, f2, mutBrush, new RectangleF(sx, sy, w - (sx - x), f2.Height), fmt);
+            }
         }
 
         return bmp;
@@ -621,10 +631,12 @@ internal sealed class StripWindow : Form
         menu.Items.Add("Re-attach to taskbar", null, (_, _) => RehookAndReposition());
         menu.Items.Add("Exit", null, (_, _) => Application.Exit());
 
+        Icon? appIcon = null;
+        try { appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         _tray = new NotifyIcon
         {
             Text = "Tallybar",
-            Icon = SystemIcons.Application,
+            Icon = appIcon ?? SystemIcons.Application,
             Visible = true,
             ContextMenuStrip = menu,
         };
@@ -656,22 +668,35 @@ internal sealed class StripWindow : Form
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
+
+            static void Rounded(Graphics g, Brush b, RectangleF r)
+            {
+                float d = Math.Min(r.Height, r.Width);
+                using var path = new GraphicsPath();
+                path.AddArc(r.Left, r.Top, d, d, 90, 180);
+                path.AddArc(r.Right - d, r.Top, d, d, 270, 180);
+                path.CloseFigure();
+                g.FillPath(b, path);
+            }
+
             if (rows.Count == 0)
             {
-                using var pen = new Pen(Color.FromArgb(200, 128, 134, 148), 3f);
-                g.DrawEllipse(pen, 6, 6, size - 12, size - 12);
+                using var pen = new Pen(Color.FromArgb(200, 128, 134, 148), 3f)
+                { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                g.DrawArc(pen, 6, 6, size - 12, size - 12, 135, 270); // idle gauge arc
             }
             else
             {
-                int barH = Math.Min(9, (size - 4) / rows.Count - 3);
-                int y = (size - rows.Count * (barH + 3) + 3) / 2;
+                float barH = Math.Min(8f, (size - 6f) / rows.Count - 4f);
+                float y = (size - rows.Count * (barH + 4) + 4) / 2f;
                 foreach ((double fraction, Color tone, _) in rows)
                 {
-                    using var back = new SolidBrush(Color.FromArgb(70, tone));
+                    float w = (size - 6) * (float)Math.Clamp(fraction, 0, 1);
+                    using var back = new SolidBrush(Color.FromArgb(60, tone));
                     using var fore = new SolidBrush(tone);
-                    g.FillRectangle(back, 2, y, size - 4, barH);
-                    g.FillRectangle(fore, 2, y, (int)((size - 4) * Math.Clamp(fraction, 0, 1)), barH);
-                    y += barH + 3;
+                    Rounded(g, back, new RectangleF(3, y, size - 6, barH));
+                    if (w >= barH) Rounded(g, fore, new RectangleF(3, y, w, barH));
+                    y += barH + 4;
                 }
             }
         }
