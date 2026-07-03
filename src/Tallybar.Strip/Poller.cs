@@ -90,7 +90,7 @@ public sealed class Poller : IDisposable
                     _latest[p.Id] = [new(p.Id, "session", double.NaN, null, now, FetchStatus.AuthError)];
                     _nextDue[p.Id] = now + MaxBackoff; // creds won't fix themselves; re-check occasionally
                 }
-                catch
+                catch (Exception e)
                 {
                     // Network/parse error: keep last values, mark them stale, back off.
                     int fails = _failures.GetValueOrDefault(p.Id) + 1;
@@ -100,8 +100,17 @@ public sealed class Poller : IDisposable
                     else
                         _latest[p.Id] = [new(p.Id, "session", double.NaN, null, now, FetchStatus.Offline)];
 
-                    double factor = Math.Min(Math.Pow(2, fails), MaxBackoff / baseInterval);
-                    _nextDue[p.Id] = now + baseInterval * factor;
+                    // Rate-limited: a fixed cool-off beats exponential guessing.
+                    if (e is System.Net.Http.HttpRequestException
+                        { StatusCode: System.Net.HttpStatusCode.TooManyRequests })
+                    {
+                        _nextDue[p.Id] = now + TimeSpan.FromMinutes(5);
+                    }
+                    else
+                    {
+                        double factor = Math.Min(Math.Pow(2, fails), MaxBackoff / baseInterval);
+                        _nextDue[p.Id] = now + baseInterval * factor;
+                    }
                 }
             }
         }

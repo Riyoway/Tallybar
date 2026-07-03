@@ -43,6 +43,7 @@ internal sealed class PopoverWindow : Form
         TopMost = true;
         Text = "Tallybar";
         DoubleBuffered = true;
+        BackColor = StripWindow.IsLightTheme(settings) ? Color.White : Color.Black;
 
         _poller.Updated += OnPollerUpdated;
     }
@@ -128,7 +129,12 @@ internal sealed class PopoverWindow : Form
         Color mut = light ? Color.FromArgb(110, 116, 128) : Color.FromArgb(154, 161, 178);
         Color faint = Color.FromArgb(light ? 30 : 24, light ? Color.Black : Color.White);
 
-        if (!_acrylic) // opaque fallback (no blur available)
+        // With blur-behind acrylic, GDI pixels are composited over the blur — the base
+        // coat must match the theme (black shows the dark tint through; anything else,
+        // like the default Control color, washes the whole card out white).
+        if (_acrylic)
+            g.Clear(light ? Color.White : Color.Black);
+        else // opaque fallback (no blur available)
             g.Clear(light ? Color.FromArgb(242, 245, 247) : Color.FromArgb(18, 21, 31));
 
         using var fTitle = new Font("Segoe UI", 10.5f * s, FontStyle.Bold, GraphicsUnit.Pixel);

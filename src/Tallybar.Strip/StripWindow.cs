@@ -119,13 +119,17 @@ internal sealed class StripWindow : Form
             return;
         }
 
+        bool providerChanged = _providerId != current.Id;
         _providerId = current.Id;
         _label = current.DisplayName;
         var snapshots = _poller.Latest(current.Id);
         UsageSnapshot? primary = snapshots.FirstOrDefault();
         _status = primary?.Status ?? FetchStatus.Offline;
         _fraction = primary?.Fraction ?? double.NaN;
-        if (double.IsNaN(_shownFraction)) _shownFraction = _fraction;
+        // Never ease across providers or into missing data — that would show the
+        // previous provider's number under the new provider's name.
+        if (providerChanged || double.IsNaN(_fraction) || double.IsNaN(_shownFraction))
+            _shownFraction = _fraction;
 
         if (primary is { Status: FetchStatus.Ok or FetchStatus.Stale } p && !double.IsNaN(p.Fraction))
         {
