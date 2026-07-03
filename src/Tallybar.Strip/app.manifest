@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+
+  <!-- DPI: Per-Monitor-V2 is set via Application.SetHighDpiMode(PerMonitorV2) in Program.cs
+       (WinForms owns DPI config; setting it here too triggers WFO0003). It runs before any
+       window is created, so GetWindowRect(Shell_TrayWnd) returns physical pixels. -->
+
+  <!-- Declare Win10/Win11 support so RtlGetVersion-style build checks resolve correctly. -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/> <!-- Windows 10 & 11 -->
+    </application>
+  </compatibility>
+
+</assembly>
