@@ -99,8 +99,14 @@ internal sealed class StripWindow : Form
         RefreshFromPoller();
     }
 
+    // True only when this window can safely touch its HWND. Guards every path reachable
+    // from a shared event (poller/settings) — those can fire on a window that has just
+    // been disposed (e.g. a secondary strip removed mid-settings-change).
+    private bool Alive => IsHandleCreated && !IsDisposed && !Disposing;
+
     private void RefreshFromPoller()
     {
+        if (!Alive) return;
         var active = ActiveProviders();
         IProvider? current = null;
         if (_settings.StripProvider != "cycle")
@@ -162,6 +168,7 @@ internal sealed class StripWindow : Form
 
     private void OnSettingsChanged()
     {
+        if (!Alive) return;
         _cycle.Interval = _settings.CycleSeconds * 1000;
         RefreshFromPoller();
     }
@@ -366,6 +373,8 @@ internal sealed class StripWindow : Form
 
     private void Reposition()
     {
+        if (!Alive) return;
+
         // Mirror the taskbar's behavior: get out of the way of fullscreen apps.
         if (IsFullscreenActive())
         {

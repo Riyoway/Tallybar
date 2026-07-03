@@ -22,7 +22,8 @@ internal sealed class SettingsWindow : Form
     private readonly bool _light;
     private readonly List<Row> _rows = [];
 
-    internal Color Ink, Mut, Faint, Accent, Base;
+    internal Color Ink, Mut, Faint, Base;
+    internal Color Accent => _s.Ok; // live, so a colour change recolours controls on repaint
     private RectangleF _closeRect;
     private bool _closeHot;
     private float _scroll;
@@ -50,7 +51,6 @@ internal sealed class SettingsWindow : Form
         Ink = _light ? Color.FromArgb(24, 28, 36) : Color.FromArgb(233, 236, 244);
         Mut = _light ? Color.FromArgb(110, 116, 128) : Color.FromArgb(154, 161, 178);
         Faint = Color.FromArgb(_light ? 26 : 28, _light ? Color.Black : Color.White);
-        Accent = settings.Ok;
 
         Text = "Tallybar settings";
         FormBorderStyle = FormBorderStyle.None;

@@ -24,14 +24,18 @@ internal static class Program
         using var poller = new Poller([new ClaudeProvider(), new CodexProvider()], settings);
         using var strip = new StripWindow(settings, poller);
 
-        // Secondary-monitor strips, rebuilt when displays or the setting change.
+        // Secondary-monitor strips, (re)built only when the wanted count actually changes,
+        // so unrelated setting tweaks don't churn (or dispose subscribers mid-event).
         var secondaries = new List<StripWindow>();
         void RebuildSecondaries()
         {
+            if (strip.IsDisposed) return;
+            int want = settings.SecondaryTaskbars ? Math.Max(0, TaskbarLocator.Count() - 1) : 0;
+            if (want == secondaries.Count) return;
+
             foreach (StripWindow s in secondaries) s.Dispose();
             secondaries.Clear();
-            if (!settings.SecondaryTaskbars) return;
-            for (int i = 1; i < TaskbarLocator.Count(); i++)
+            for (int i = 1; i <= want; i++)
             {
                 var s = new StripWindow(settings, poller, taskbarIndex: i, isPrimary: false);
                 secondaries.Add(s);
