@@ -251,7 +251,8 @@ internal sealed class SettingsWindow : Form
         foreach (Row r in _rows)
         {
             if (r.Y + r.H < _scroll || r.Y > _scroll + ViewH) continue; // cull off-screen
-            r.Paint(g, this);
+            try { r.Paint(g, this); }
+            catch { /* one misbehaving row must never white-screen the whole panel */ }
         }
         g.Restore(state);
         g.ResetClip();
@@ -388,20 +389,30 @@ internal sealed class SettingsWindow : Form
         {
             using var f = new Font("Segoe UI", 11f * w.Sc, FontStyle.Regular, GraphicsUnit.Pixel);
             float padX = 9 * w.Sc, h = 22 * w.Sc, gap = 3 * w.Sc;
-            using Bitmap tmp = new(1, 1);
-            using Graphics mg = g ?? Graphics.FromImage(tmp);
-            float total = 0;
-            var widths = new float[options.Length];
-            for (int i = 0; i < options.Length; i++)
+
+            // Measure with the caller's Graphics when painting, or a throwaway one when
+            // hit-testing. Never dispose the caller's Graphics — it belongs to OnPaint.
+            Bitmap? tmp = null;
+            Graphics mg = g ?? Graphics.FromImage(tmp = new Bitmap(1, 1));
+            try
             {
-                widths[i] = mg.MeasureString(options[i], f).Width + padX * 2;
-                total += widths[i] + (i > 0 ? gap : 0);
+                float total = 0;
+                var widths = new float[options.Length];
+                for (int i = 0; i < options.Length; i++)
+                {
+                    widths[i] = mg.MeasureString(options[i], f).Width + padX * 2;
+                    total += widths[i] + (i > 0 ? gap : 0);
+                }
+                float x = w.Width - w.RowPad - total, y = Y + (H - h) / 2;
+                for (int i = 0; i < options.Length; i++)
+                {
+                    _rects[i] = new RectangleF(x, y, widths[i], h);
+                    x += widths[i] + gap;
+                }
             }
-            float x = w.Width - w.RowPad - total, y = Y + (H - h) / 2;
-            for (int i = 0; i < options.Length; i++)
+            finally
             {
-                _rects[i] = new RectangleF(x, y, widths[i], h);
-                x += widths[i] + gap;
+                if (tmp is not null) { mg.Dispose(); tmp.Dispose(); }
             }
         }
 
