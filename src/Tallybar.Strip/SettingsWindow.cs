@@ -187,7 +187,9 @@ internal sealed class SettingsWindow : Form
             if (cy >= r.Y && cy < r.Y + r.H)
             {
                 row = r;
-                local = new PointF(p.X, cy - r.Y);
+                // Content-space point: rows compute their hit rects in the same space
+                // they paint in (absolute row.Y + window X), so hand it the matching point.
+                local = new PointF(p.X, cy);
                 return true;
             }
         }
