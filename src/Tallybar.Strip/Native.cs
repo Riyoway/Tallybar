@@ -134,4 +134,72 @@ internal static partial class Native
 
     [LibraryImport("shell32.dll")]
     public static partial int SHQueryUserNotificationState(out int state);
+
+    // --- DWM window chrome (popover / settings) ---
+
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33; // Win11 22000+
+    public const int DWMWCP_ROUND = 2;
+
+    [LibraryImport("dwmapi.dll")]
+    public static partial int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    // Undocumented but long-stable acrylic blur-behind (Win10 1803+ and Win11).
+    private const int WCA_ACCENT_POLICY = 19;
+    private const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AccentPolicy { public int State, Flags, GradientColor, AnimationId; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowCompositionAttribData { public int Attribute; public IntPtr Data; public int SizeOfData; }
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttribData data);
+
+    /// <summary>Blur-behind acrylic with an AABBGGRR tint; returns false if unavailable.</summary>
+    public static bool TryEnableAcrylic(IntPtr hwnd, uint tintAbgr)
+    {
+        try
+        {
+            var accent = new AccentPolicy
+            {
+                State = ACCENT_ENABLE_ACRYLICBLURBEHIND,
+                GradientColor = unchecked((int)tintAbgr),
+            };
+            IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf<AccentPolicy>());
+            try
+            {
+                Marshal.StructureToPtr(accent, ptr, false);
+                var data = new WindowCompositionAttribData
+                {
+                    Attribute = WCA_ACCENT_POLICY,
+                    Data = ptr,
+                    SizeOfData = Marshal.SizeOf<AccentPolicy>(),
+                };
+                return SetWindowCompositionAttribute(hwnd, ref data) != 0;
+            }
+            finally { Marshal.FreeHGlobal(ptr); }
+        }
+        catch { return false; }
+    }
+
+    [LibraryImport("gdi32.dll")]
+    public static partial IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
+
+    [LibraryImport("user32.dll")]
+    public static partial int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DestroyIcon(IntPtr hIcon);
+
+    // Secondary-monitor taskbars.
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 }

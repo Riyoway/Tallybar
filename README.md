@@ -17,19 +17,29 @@ Tray icons are 16 pixels of guesswork. Network monitors solved this decades ago 
 drawing straight onto the taskbar — Tallybar does the same for AI usage limits, so you
 can plan a long agent run around your reset window at a glance.
 
-- **Live sparkline** of recent usage, colored by state: green → amber (>75%) → red (>90%).
-- **Reset countdown** (`↻ 3h42m`) plus the weekly window percentage.
+- **Live sparkline** of recent usage, colored by state: green → amber → red as the
+  window fills (thresholds and colors are yours to change).
+- **Reset countdown** (`↻ 3h42m`) plus the weekly window percentage; cycles between
+  providers (Claude, Codex) or pins the one you pick.
+- **Click for detail**: an acrylic popover with every usage window per provider —
+  bars, percentages, and reset countdowns.
 - **Blends in**: per-pixel-alpha rendering over the taskbar's own material, light/dark
   theme aware, hides automatically over fullscreen apps.
 - **Drag to place, drag edges to resize**: slide the strip anywhere along the taskbar
   and pull its left/top edge to size it; both stick across restarts.
+- **Customizable**: which items show, colors, thresholds, corner radius, opacity,
+  animations, poll interval, launch at login, secondary-monitor strips — all in a
+  live-preview settings window.
+- **Tray mini-gauge**: the notification-area icon renders live usage bars, so the
+  numbers survive even where the overlay can't attach.
 
 ## Privacy
 
-Tallybar has no backend and no telemetry. It reuses the OAuth session that
-[Claude Code](https://claude.com/claude-code) already maintains locally
-(`~/.claude/.credentials.json`), sends it only to Anthropic's own usage endpoint, and
-stores nothing of its own. If the token has expired, run `claude` once to refresh it.
+Tallybar has no backend and no telemetry. It reuses the sessions your CLIs already
+maintain locally — [Claude Code](https://claude.com/claude-code)'s
+`~/.claude/.credentials.json` and the codex CLI's `~/.codex/auth.json` — sends each
+token only to its own vendor's usage endpoint, and stores nothing of its own. If a
+token has expired, run `claude` / `codex` once to refresh it.
 
 ## Getting started
 
@@ -45,10 +55,15 @@ The strip appears just left of the clock after the first fetch (a few seconds).
 
 | Action | Effect |
 |--------|--------|
+| Click the strip (or tray icon) | Open the usage popover |
 | Drag the strip | Move it along the taskbar (persisted) |
 | Drag its left or top edge | Resize width / height (persisted) |
-| Right-click the tray icon | Reset position & size · Re-attach · Exit |
+| Right-click the tray icon | Open · Settings · Refresh · Reset · Exit |
 | `Tallybar --probe` | Print fetched usage to the console, no UI |
+
+Settings (tray icon → **Settings…**) cover providers, displayed items, theme, colors
+and thresholds, corner radius, opacity, animations, poll interval, launch at login,
+and strips on secondary taskbars. Changes apply live.
 
 ## How it works
 
@@ -68,9 +83,8 @@ taskbar surface:
 
 ## Limitations
 
-- Primary horizontal taskbar only for now; vertical taskbars and secondary monitors
-  are on the roadmap, as are more providers, a click-to-open detail popover, and
-  packaged releases.
+- Horizontal (bottom/top) taskbars only; vertical taskbars are not handled yet.
+  Packaged, signed releases and more providers are on the roadmap.
 - The overlay shares space with the tray area rather than reserving it — if it covers
   an icon, drag it somewhere emptier.
 
