@@ -275,7 +275,7 @@ internal sealed class PopoverWindow : Form
         else if (_settingsRect.Contains(e.Location))
         {
             Close();
-            SettingsWindow.Open(_settings);
+            SettingsWindow.Open(_settings, _anchor);
         }
     }
 }

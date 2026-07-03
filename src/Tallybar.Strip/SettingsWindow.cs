@@ -5,8 +5,10 @@ using Microsoft.Win32;
 namespace Tallybar;
 
 /// <summary>
-/// Settings dialog. Every control writes through to Settings and saves immediately,
-/// so the strip live-previews each change. One instance at a time.
+/// Settings as a glassy flyout anchored above the strip — the same visual surface as
+/// the usage popover, not a separate framed window. Borderless, acrylic, rounded, dark.
+/// Every control writes through to Settings and saves immediately, so the strip
+/// live-previews each change. One instance at a time; closes on Esc or the × button.
 /// </summary>
 internal sealed class SettingsWindow : Form
 {
@@ -14,58 +16,150 @@ internal sealed class SettingsWindow : Form
     private static SettingsWindow? _open;
 
     private readonly Settings _s;
-    private readonly TableLayoutPanel _grid;
+    private readonly Rectangle _anchor;
+    private readonly bool _light;
+    private readonly Color _ink, _mut, _input, _base;
+    private readonly float _scale;
+    private TableLayoutPanel _grid = null!;
     private bool _loading = true;
 
-    public static void Open(Settings settings)
+    public static void Open(Settings settings, Rectangle anchor)
     {
         if (_open is { IsDisposed: false })
         {
             _open.Activate();
             return;
         }
-        _open = new SettingsWindow(settings);
+        _open = new SettingsWindow(settings, anchor);
         _open.Show();
+        _open.Activate();
     }
 
-    private SettingsWindow(Settings settings)
+    private SettingsWindow(Settings settings, Rectangle anchor)
     {
         _s = settings;
-        bool light = StripWindow.IsLightTheme(settings);
-        Color back = light ? Color.FromArgb(243, 244, 248) : Color.FromArgb(20, 22, 30);
-        Color ink = light ? Color.FromArgb(25, 28, 36) : Color.FromArgb(233, 236, 244);
+        _anchor = anchor;
+        _light = StripWindow.IsLightTheme(settings);
+        _scale = DeviceDpi / 96f;
+
+        _base = _light ? Color.White : Color.Black;
+        _ink = _light ? Color.FromArgb(24, 28, 36) : Color.FromArgb(233, 236, 244);
+        _mut = _light ? Color.FromArgb(110, 116, 128) : Color.FromArgb(154, 161, 178);
+        _input = _light ? Color.FromArgb(245, 246, 248) : Color.FromArgb(40, 44, 56);
 
         Text = "Tallybar settings";
-        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        ShowInTaskbar = true;
-        StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        BackColor = back;
-        ForeColor = ink;
-        Font = new Font("Segoe UI", 9.5f);
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        AutoScaleMode = AutoScaleMode.None;
+        KeyPreview = true;
+        BackColor = _base;
+        ForeColor = _ink;
+        Font = new Font("Segoe UI", 9f * _scale);
 
+        BuildLayout();
+        _loading = false;
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= Native.WS_EX_TOOLWINDOW; // keep off Alt-Tab
+            return cp;
+        }
+    }
+
+    private void BuildLayout()
+    {
+        float s = _scale;
+
+        // Header: title + close glyph.
+        var header = new Panel { Dock = DockStyle.Top, Height = (int)(42 * s), BackColor = _base };
+        var title = new Label
+        {
+            Text = "Settings",
+            Font = new Font("Segoe UI", 12f * s, FontStyle.Bold),
+            ForeColor = _ink,
+            AutoSize = true,
+            Location = new Point((int)(16 * s), (int)(11 * s)),
+            BackColor = Color.Transparent,
+        };
+        var close = new Label
+        {
+            Text = Icons.Close,
+            Font = Icons.GetFont(11 * s),
+            ForeColor = _mut,
+            AutoSize = false,
+            Size = new Size((int)(30 * s), (int)(30 * s)),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Cursor = Cursors.Hand,
+            BackColor = Color.Transparent,
+        };
+        close.Click += (_, _) => Close();
+        close.MouseEnter += (_, _) => close.ForeColor = _ink;
+        close.MouseLeave += (_, _) => close.ForeColor = _mut;
+        header.Controls.Add(title);
+        header.Controls.Add(close);
+        header.Resize += (_, _) => close.Location = new Point(header.Width - close.Width - (int)(6 * s), (int)(6 * s));
+
+        // Scrollable content.
+        var content = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = _base };
         _grid = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
             ColumnCount = 2,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(18, 12, 18, 16),
+            Padding = new Padding((int)(16 * s), (int)(4 * s), (int)(16 * s), (int)(14 * s)),
+            BackColor = _base,
         };
-        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
-        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
-        Controls.Add(_grid);
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170 * s));
+        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 168 * s));
+        content.Controls.Add(_grid);
+
+        Controls.Add(content);
+        Controls.Add(header);
 
         BuildControls();
-        _loading = false;
 
-        int dark = light ? 0 : 1;
+        // Size: fixed width, height fits content but clamped to the working area.
+        int width = (int)(354 * s);
+        int desired = header.Height + _grid.PreferredSize.Height + (int)(10 * s);
+        Rectangle wa = Screen.FromRectangle(_anchor).WorkingArea;
+        int height = Math.Min(desired, wa.Height - (int)(16 * s));
+
+        // Anchored above the strip, right-aligned, clamped to the working area.
+        int x = Math.Max(wa.Left + 8, Math.Min(_anchor.Right - width, wa.Right - width - 8));
+        int y = Math.Max(wa.Top + 8, _anchor.Top - height - (int)(10 * s));
+        SetBounds(x, y, width, height);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Same glass treatment as the usage popover.
+        Native.TryEnableAcrylic(Handle, _light ? 0xD9F7F5F2 : 0xD9201812);
+        int dark = _light ? 0 : 1;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+        if (Environment.OSVersion.Version.Build >= 22000)
+        {
+            int round = Native.DWMWCP_ROUND;
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+        }
+        else
+        {
+            Native.SetWindowRgn(Handle,
+                Native.CreateRoundRectRgn(0, 0, Width + 1, Height + 1, 12, 12), true);
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.KeyCode == Keys.Escape) Close();
     }
 
     private void BuildControls()
@@ -101,7 +195,7 @@ internal sealed class SettingsWindow : Form
         Check("Launch at login", IsLaunchAtLogin(), SetLaunchAtLogin, save: false);
     }
 
-    // --- control builders (write-through + immediate save) ---
+    // --- control builders (dark-themed, write-through + immediate save) ---
 
     private void Changed()
     {
@@ -112,10 +206,12 @@ internal sealed class SettingsWindow : Form
     {
         var label = new Label
         {
-            Text = text,
-            Font = new Font(Font, FontStyle.Bold),
+            Text = text.ToUpperInvariant(),
+            Font = new Font("Segoe UI", 8f * _scale, FontStyle.Bold),
+            ForeColor = _mut,
             AutoSize = true,
-            Margin = new Padding(0, 14, 0, 6),
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, (int)(14 * _scale), 0, (int)(6 * _scale)),
         };
         _grid.SetColumnSpan(label, 2);
         _grid.Controls.Add(label);
@@ -124,7 +220,17 @@ internal sealed class SettingsWindow : Form
 
     private void Check(string text, bool value, Action<bool> apply, bool save = true)
     {
-        var cb = new CheckBox { Text = text, Checked = value, AutoSize = true, Margin = new Padding(4, 3, 0, 3) };
+        var cb = new CheckBox
+        {
+            Text = text,
+            Checked = value,
+            AutoSize = true,
+            ForeColor = _ink,
+            BackColor = Color.Transparent,
+            FlatStyle = FlatStyle.Flat,
+            Margin = new Padding((int)(2 * _scale), (int)(3 * _scale), 0, (int)(3 * _scale)),
+        };
+        cb.FlatAppearance.BorderColor = _mut;
         cb.CheckedChanged += (_, _) => { apply(cb.Checked); if (save) Changed(); };
         _grid.SetColumnSpan(cb, 2);
         _grid.Controls.Add(cb);
@@ -135,8 +241,14 @@ internal sealed class SettingsWindow : Form
         AddCaption(caption);
         var num = new NumericUpDown
         {
-            Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max),
-            Width = 90, Margin = new Padding(0, 3, 0, 3),
+            Minimum = min,
+            Maximum = max,
+            Value = Math.Clamp(value, min, max),
+            Width = (int)(84 * _scale),
+            BackColor = _input,
+            ForeColor = _ink,
+            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(0, (int)(3 * _scale), 0, (int)(3 * _scale)),
         };
         num.ValueChanged += (_, _) => { apply((int)num.Value); Changed(); };
         _grid.Controls.Add(num);
@@ -148,7 +260,11 @@ internal sealed class SettingsWindow : Form
         var combo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 200, Margin = new Padding(0, 3, 0, 3),
+            FlatStyle = FlatStyle.Flat,
+            Width = (int)(162 * _scale),
+            BackColor = _input,
+            ForeColor = _ink,
+            Margin = new Padding(0, (int)(3 * _scale), 0, (int)(3 * _scale)),
         };
         combo.Items.AddRange(display);
         int idx = Array.IndexOf(values, current);
@@ -162,8 +278,12 @@ internal sealed class SettingsWindow : Form
         AddCaption(caption);
         var btn = new Button
         {
-            Width = 90, Height = 26, Margin = new Padding(0, 3, 0, 3),
-            FlatStyle = FlatStyle.Flat, BackColor = get(), Text = "",
+            Width = (int)(84 * _scale),
+            Height = (int)(24 * _scale),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = get(),
+            Text = "",
+            Margin = new Padding(0, (int)(3 * _scale), 0, (int)(3 * _scale)),
         };
         btn.FlatAppearance.BorderColor = Color.FromArgb(90, 96, 110);
         btn.Click += (_, _) =>
@@ -182,7 +302,11 @@ internal sealed class SettingsWindow : Form
     private void AddCaption(string caption)
         => _grid.Controls.Add(new Label
         {
-            Text = caption, AutoSize = true, Margin = new Padding(4, 7, 0, 3),
+            Text = caption,
+            AutoSize = true,
+            ForeColor = _ink,
+            BackColor = Color.Transparent,
+            Margin = new Padding((int)(2 * _scale), (int)(7 * _scale), 0, (int)(3 * _scale)),
         });
 
     // --- launch at login (registry is the source of truth; not stored in settings.json) ---

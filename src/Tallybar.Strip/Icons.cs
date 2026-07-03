@@ -12,6 +12,7 @@ internal static class Icons
     public const string Refresh = "\uE72C";
     public const string Settings = "\uE713";
     public const string Clock = "\uE823";   // "Recent" — outline clock
+    public const string Close = "";   // ChromeClose
 
     private static string? _family;
 
