@@ -14,10 +14,6 @@ namespace Tallybar;
 /// </summary>
 internal sealed class StripWindow : Form
 {
-    // Logical design size at 100% DPI; scaled per-monitor.
-    private const int BaseWidth = 150;
-    private const int BaseHeight = 40;
-
     private readonly int _taskbarCreatedMsg;
     private readonly Native.WinEventDelegate _winEventCallback; // held to prevent GC
     private readonly System.Windows.Forms.Timer _reassert;
@@ -25,12 +21,16 @@ internal sealed class StripWindow : Form
     private NotifyIcon? _tray;
     private bool _hiddenForFullscreen;
 
-    // Horizontal position: physical px to shift left from the clock anchor. Set by dragging
-    // the strip into an empty spot so it doesn't sit on top of other tray icons.
-    private int _gap;
-    private bool _dragging;
-    private int _dragStartMouseX;
+    // Position + size, persisted. Drag the body to move; drag the left/top edge to resize.
+    private readonly StripLayout _layout;
+    private double _scale = 1.0; // last DPI scale seen, for converting drag deltas
+    private DragMode _drag = DragMode.None;
+    private Point _dragStartMouse;
     private int _dragStartGap;
+    private int _dragStartWidth;
+    private int _dragStartHeight;
+
+    private enum DragMode { None, Move, ResizeWidth, ResizeHeight }
 
     // What we draw (fed by the poller via ShowUsage).
     private readonly Ring _history = new(48);
@@ -45,8 +45,8 @@ internal sealed class StripWindow : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Text = "Tallybar";
-        Size = new Size(BaseWidth, BaseHeight);
-        _gap = LayoutStore.LoadGap();
+        _layout = StripLayout.Load();
+        Size = new Size(_layout.Width, _layout.Height);
 
         _taskbarCreatedMsg = (int)Native.RegisterWindowMessageW("TaskbarCreated");
         _winEventCallback = OnTrayLocationChanged;
@@ -172,43 +172,80 @@ internal sealed class StripWindow : Form
         IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
         => Reposition();
 
-    // --- drag to reposition (left/right along the taskbar) ---
+    // --- drag: body = move along the taskbar; left/top edge = resize ---
+
+    private DragMode HitTest(Point client)
+    {
+        int edge = Math.Max(5, (int)(6 * _scale));
+        if (client.X <= edge) return DragMode.ResizeWidth;
+        if (client.Y <= edge / 2 + 2) return DragMode.ResizeHeight;
+        return DragMode.Move;
+    }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
-        _dragging = true;
-        _dragStartMouseX = Control.MousePosition.X; // physical px (Per-Monitor-V2)
-        _dragStartGap = _gap;
+        _drag = HitTest(e.Location);
+        _dragStartMouse = Control.MousePosition; // physical px (Per-Monitor-V2)
+        _dragStartGap = _layout.Gap;
+        _dragStartWidth = _layout.Width;
+        _dragStartHeight = _layout.Height;
         Capture = true; // keep receiving moves even off the strip
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (!_dragging) return;
-        // Drag left -> mouse X decreases -> gap grows -> strip moves left.
-        int delta = _dragStartMouseX - Control.MousePosition.X;
-        int next = Math.Max(0, _dragStartGap + delta);
-        if (next == _gap) return;
-        _gap = next;
+        if (_drag == DragMode.None)
+        {
+            Cursor = HitTest(e.Location) switch
+            {
+                DragMode.ResizeWidth => Cursors.SizeWE,
+                DragMode.ResizeHeight => Cursors.SizeNS,
+                _ => Cursors.SizeAll,
+            };
+            return;
+        }
+
+        Point mouse = Control.MousePosition;
+        int dx = _dragStartMouse.X - mouse.X; // >0 when dragging left
+        int dy = _dragStartMouse.Y - mouse.Y; // >0 when dragging up
+        switch (_drag)
+        {
+            case DragMode.Move:
+                _layout.Gap = Math.Max(0, _dragStartGap + dx);
+                break;
+            case DragMode.ResizeWidth:
+                // Right edge stays anchored; pulling the left edge outward widens.
+                _layout.Width = Math.Clamp(
+                    _dragStartWidth + (int)(dx / _scale), StripLayout.MinWidth, StripLayout.MaxWidth);
+                break;
+            case DragMode.ResizeHeight:
+                // Pulling the top edge upward grows the strip (taskbar height still caps it).
+                _layout.Height = Math.Clamp(
+                    _dragStartHeight + (int)(dy / _scale), StripLayout.MinHeight, StripLayout.MaxHeight);
+                break;
+        }
         Reposition();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        if (!_dragging) return;
-        _dragging = false;
+        if (_drag == DragMode.None) return;
+        _drag = DragMode.None;
         Capture = false;
-        LayoutStore.SaveGap(_gap);
+        _layout.Save();
     }
 
-    private void ResetPosition()
+    private void ResetLayout()
     {
-        _gap = 0;
-        LayoutStore.SaveGap(0);
+        var fresh = new StripLayout();
+        _layout.Gap = fresh.Gap;
+        _layout.Width = fresh.Width;
+        _layout.Height = fresh.Height;
+        _layout.Save();
         Reposition();
     }
 
@@ -239,14 +276,15 @@ internal sealed class StripWindow : Form
             return;
         }
 
-        int height = Math.Min(p.TaskbarRect.Height - 8, (int)(BaseHeight * p.Scale));
+        _scale = p.Scale;
+        int height = Math.Min(p.TaskbarRect.Height - 8, (int)(_layout.Height * p.Scale));
         if (height < 16) height = Math.Max(8, p.TaskbarRect.Height - 4);
-        int width = (int)(BaseWidth * p.Scale);
+        int width = (int)(_layout.Width * p.Scale);
         int margin = (int)(8 * p.Scale);
 
         // Anchor just left of the clock, then shift further left by the user's drag gap so
         // the strip can be parked in empty space instead of overlapping tray icons.
-        int x = p.ClockRect.Left - width - margin - _gap;
+        int x = p.ClockRect.Left - width - margin - _layout.Gap;
         x = Math.Max(p.TaskbarRect.Left, x); // never run off the left edge
         int y = p.TaskbarRect.Top + (p.TaskbarRect.Height - height) / 2;
 
@@ -429,9 +467,9 @@ internal sealed class StripWindow : Form
     private void SetupTray()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Tallybar — drag the strip to move it").Enabled = false;
+        menu.Items.Add("Tallybar — drag to move, drag left/top edge to resize").Enabled = false;
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Reset position", null, (_, _) => ResetPosition());
+        menu.Items.Add("Reset position && size", null, (_, _) => ResetLayout());
         menu.Items.Add("Re-attach to taskbar", null, (_, _) => RehookAndReposition());
         menu.Items.Add("Exit", null, (_, _) => Application.Exit());
 

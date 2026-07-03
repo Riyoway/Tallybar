@@ -21,7 +21,8 @@ can plan a long agent run around your reset window at a glance.
 - **Reset countdown** (`↻ 3h42m`) plus the weekly window percentage.
 - **Blends in**: per-pixel-alpha rendering over the taskbar's own material, light/dark
   theme aware, hides automatically over fullscreen apps.
-- **Drag to place**: slide the strip anywhere along the taskbar; the position sticks.
+- **Drag to place, drag edges to resize**: slide the strip anywhere along the taskbar
+  and pull its left/top edge to size it; both stick across restarts.
 
 ## Privacy
 
@@ -45,7 +46,8 @@ The strip appears just left of the clock after the first fetch (a few seconds).
 | Action | Effect |
 |--------|--------|
 | Drag the strip | Move it along the taskbar (persisted) |
-| Right-click the tray icon | Reset position · Re-attach · Exit |
+| Drag its left or top edge | Resize width / height (persisted) |
+| Right-click the tray icon | Reset position & size · Re-attach · Exit |
 | `Tallybar --probe` | Print fetched usage to the console, no UI |
 
 ## How it works
