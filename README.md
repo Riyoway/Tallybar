@@ -15,6 +15,10 @@ on your machine.
 ![Windows 10+](https://img.shields.io/badge/Windows-10%2B-0a0a0c?style=flat-square)
 ![.NET 10](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square)
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="Tallybar's live strip on the Windows taskbar and its usage popover showing Claude session and weekly limits" width="520">
+</p>
+
 ## Why on the taskbar?
 
 Tray icons are 16 pixels of guesswork. Network monitors solved this decades ago by
