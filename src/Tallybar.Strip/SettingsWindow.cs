@@ -485,14 +485,11 @@ internal sealed class SettingsWindow : Form
                 bool on = i == sel;
                 using (var bg = new SolidBrush(on ? w.Accent : w.Faint))
                     Fill(g, _rects[i], bg, _rects[i].Height / 2);
-                Color tc = on ? PickTextOn(w.Accent) : w.Mut;
+                Color tc = on ? Palette.TextOn(w.Accent) : w.Mut;
                 using var tb = new SolidBrush(tc);
                 g.DrawString(options[i], f, tb, _rects[i], fmt);
             }
         }
-
-        private static Color PickTextOn(Color accent)
-            => accent.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
 
         public override bool OnClick(SettingsWindow w, PointF p)
         {

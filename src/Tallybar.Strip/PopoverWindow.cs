@@ -427,8 +427,7 @@ internal sealed class PopoverWindow : Form
     private Color Accent => Palette.Readable(_settings.Ok, _light);
     private Color State(double fraction) => Palette.Readable(_settings.ColorFor(fraction), _light);
 
-    private static Color TextOn(Color bg)
-        => bg.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
+    private static Color TextOn(Color bg) => Palette.TextOn(bg);
 
     // Colour to tint the logo with on an unselected tab: the brand hue where it reads on
     // both themes, otherwise the theme ink (for near-monochrome marks).

@@ -19,4 +19,22 @@ internal static class Palette
     }
 
     private static int Ch(float v) => Math.Clamp((int)v, 0, 255);
+
+    /// <summary>
+    /// Black or white ink for text/logos on <paramref name="bg"/>, chosen by actual WCAG
+    /// contrast rather than HSL lightness (which wrongly picks white on bright greens).
+    /// </summary>
+    public static Color TextOn(Color bg)
+    {
+        double l = RelativeLuminance(bg);
+        double contrastWhite = 1.05 / (l + 0.05);
+        double contrastBlack = (l + 0.05) / 0.05;
+        return contrastBlack >= contrastWhite ? Color.FromArgb(18, 22, 28) : Color.White;
+    }
+
+    private static double RelativeLuminance(Color c)
+    {
+        static double Lin(double v) => v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+        return 0.2126 * Lin(c.R / 255.0) + 0.7152 * Lin(c.G / 255.0) + 0.0722 * Lin(c.B / 255.0);
+    }
 }
