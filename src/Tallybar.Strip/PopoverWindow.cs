@@ -189,17 +189,19 @@ internal sealed class PopoverWindow : Form
 
             Color fg = isSel ? TextOn(_settings.Ok) : _ink;
 
-            // Monogram tile: a small brand-coloured chip so providers are distinguishable.
+            // Real brand logo, tinted to read on the current surface; monogram chip if absent.
             (string mono, Color brand) = Brand(p.Id);
-            float tile = 20 * _sc;
-            var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 5 * _sc, tile, tile);
-            Color chip = isSel ? Color.FromArgb(70, TextOn(_settings.Ok)) : brand;
-            Color monoColor = isSel ? TextOn(_settings.Ok) : TextOn(brand);
-            using (var tileBg = new SolidBrush(chip))
-                FillRounded(g, tileBg, tileRect, 6 * _sc);
-            using (var fTile = new Font("Segoe UI", 9.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel))
-            using (var tb = new SolidBrush(monoColor))
+            float tile = 22 * _sc;
+            var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 4 * _sc, tile, tile);
+            Color logoColor = isSel ? TextOn(_settings.Ok) : LogoColor(p.Id, brand);
+
+            if (!Logos.Draw(g, p.Id, tileRect, logoColor))
             {
+                Color chip = isSel ? Color.FromArgb(70, TextOn(_settings.Ok)) : brand;
+                using (var tileBg = new SolidBrush(chip))
+                    FillRounded(g, tileBg, tileRect, 6 * _sc);
+                using var fTile = new Font("Segoe UI", 9.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel);
+                using var tb = new SolidBrush(isSel ? TextOn(_settings.Ok) : TextOn(brand));
                 var tfmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 g.DrawString(mono, fTile, tb, tileRect, tfmt);
             }
@@ -390,6 +392,16 @@ internal sealed class PopoverWindow : Form
 
     private static Color TextOn(Color bg)
         => bg.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
+
+    // Colour to tint the logo with on an unselected tab: the brand hue where it reads on
+    // both themes, otherwise the theme ink (for near-monochrome marks).
+    private Color LogoColor(string id, Color brand) => id switch
+    {
+        "claude" => brand,
+        "gemini" => Color.FromArgb(0x34, 0x86, 0xF6),
+        "codex" => Color.FromArgb(0x7C, 0x8A, 0xFF),
+        _ => _ink,
+    };
 
     private static (string Monogram, Color Brand) Brand(string id) => id switch
     {
