@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 
 namespace Tallybar;
@@ -77,7 +78,7 @@ internal sealed class PopoverWindow : Form
 
     private void OnPollerUpdated()
     {
-        if (!IsDisposed) Invalidate();
+        if (!IsDisposed) RenderSurface();
     }
 
     // --- geometry ---
@@ -108,22 +109,27 @@ internal sealed class PopoverWindow : Form
         SetBounds(x, y, width, height);
     }
 
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= Native.WS_EX_LAYERED; // per-pixel-alpha translucent surface
+            return cp;
+        }
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        Native.TryEnableAcrylic(Handle, _light ? 0xD9F7F5F2 : 0xD9201812);
-        int dark = _light ? 0 : 1;
-        Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
-        if (Environment.OSVersion.Version.Build >= 22000)
-        {
-            int round = Native.DWMWCP_ROUND;
-            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        }
-        else
-        {
-            Native.SetWindowRgn(Handle,
-                Native.CreateRoundRectRgn(0, 0, Width + 1, Height + 1, 12, 12), true);
-        }
+        // Ask the compositor to blur behind our translucent pixels where supported.
+        Native.TryEnableAcrylic(Handle, _light ? 0x40F7F5F2u : 0x40201812u);
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        RenderSurface();
     }
 
     protected override void OnDeactivate(EventArgs e)
@@ -139,19 +145,38 @@ internal sealed class PopoverWindow : Form
         base.OnFormClosed(e);
     }
 
-    // --- paint ---
+    // --- paint (rendered to a layered ARGB surface for real translucency) ---
 
-    protected override void OnPaintBackground(PaintEventArgs e) => e.Graphics.Clear(_base);
+    protected override void OnPaintBackground(PaintEventArgs e) { /* layered; nothing to erase */ }
 
-    protected override void OnPaint(PaintEventArgs e)
+    private void RenderSurface()
     {
-        Graphics g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        if (!IsHandleCreated || IsDisposed) return;
+        int w = Width, h = Height;
+        if (w <= 0 || h <= 0) return;
+
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.Clear(Color.Transparent);
+            PaintContent(g);
+        }
+        LayeredSurface.Push(Handle, bmp, Left, Top);
+    }
+
+    private void PaintContent(Graphics g)
+    {
+        // Translucent rounded card so the desktop (and any compositor blur) shows through.
+        var card = new RectangleF(0, 0, Width - 1, Height - 1);
+        using (var bg = new SolidBrush(Color.FromArgb(_light ? 234 : 216, _base)))
+            FillRounded(g, bg, card, 12 * _sc);
+        using (var edge = new Pen(Color.FromArgb(_light ? 42 : 48, _light ? Color.Black : Color.White)))
+            StrokeRounded(g, edge, card, 12 * _sc);
 
         _tabs.Clear();
         _menu.Clear();
-
         float y = PaintTabs(g);
         y = PaintDetail(g, y);
         PaintMenu(g, y);
@@ -310,7 +335,7 @@ internal sealed class PopoverWindow : Form
 
         using var fRow = new Font("Segoe UI", 12f * _sc, FontStyle.Regular, GraphicsUnit.Pixel);
 
-        void Row(string id, string text, string glyph = "")
+        void Row(string id, string text, string glyph = "", string logoId = "")
         {
             var rect = new RectangleF(6 * _sc, y, Width - 12 * _sc, MenuRowH);
             _menu.Add((rect, id));
@@ -321,15 +346,23 @@ internal sealed class PopoverWindow : Form
             }
             float tx = Pad;
             using var b = new SolidBrush(_ink);
-            if (glyph.Length > 0)
+            if (logoId.Length > 0)
+            {
+                float sz = 15 * _sc;
+                Logos.Draw(g, logoId, new RectangleF(tx, y + (MenuRowH - sz) / 2, sz, sz), _ink);
+                tx += sz + 8 * _sc;
+            }
+            else if (glyph.Length > 0)
+            {
                 tx += Icons.Draw(g, glyph, 12 * _sc, b, tx, y + (MenuRowH - 14 * _sc) / 2) + 8 * _sc;
+            }
             g.DrawString(text, fRow, b, tx, y + (MenuRowH - fRow.Height) / 2);
             y += MenuRowH;
         }
 
         Row("refresh", "Refresh", Icons.Refresh);
-        Row("settings", "Settings…", Icons.Settings);
-        Row("about", "About Tallybar");
+        Row("settings", "Settings", Icons.Settings);
+        Row("about", "About Tallybar", logoId: "github");
         Row("quit", "Quit");
     }
 
@@ -351,7 +384,7 @@ internal sealed class PopoverWindow : Form
         if (hit != _hover)
         {
             _hover = hit;
-            Invalidate();
+            RenderSurface();
         }
         Cursor = hit.Length > 0 ? Cursors.Hand : Cursors.Default;
     }
@@ -365,14 +398,14 @@ internal sealed class PopoverWindow : Form
         {
             _selectedId = hit[4..];
             Place();      // height depends on the selected provider's window count
-            Invalidate();
+            RenderSurface();
             return;
         }
         switch (hit)
         {
             case "refresh":
                 _poller.RefreshNow();
-                Invalidate();
+                RenderSurface();
                 break;
             case "settings":
                 Close();
@@ -437,13 +470,26 @@ internal sealed class PopoverWindow : Form
     private static void FillRounded(Graphics g, Brush brush, RectangleF r, float radius)
     {
         if (r.Width <= 0 || r.Height <= 0) return;
+        using var path = RoundedPath(r, radius);
+        g.FillPath(brush, path);
+    }
+
+    private static void StrokeRounded(Graphics g, Pen pen, RectangleF r, float radius)
+    {
+        if (r.Width <= 0 || r.Height <= 0) return;
+        using var path = RoundedPath(r, radius);
+        g.DrawPath(pen, path);
+    }
+
+    private static GraphicsPath RoundedPath(RectangleF r, float radius)
+    {
         float d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
-        using var path = new GraphicsPath();
+        var path = new GraphicsPath();
         path.AddArc(r.Left, r.Top, d, d, 180, 90);
         path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
         path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
         path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
-        g.FillPath(brush, path);
+        return path;
     }
 }

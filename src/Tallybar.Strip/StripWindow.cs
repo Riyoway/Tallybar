@@ -701,7 +701,7 @@ internal sealed class StripWindow : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open", null, (_, _) =>
             PopoverWindow.Toggle(_settings, _poller, RectangleToScreen(ClientRectangle)));
-        menu.Items.Add("Settings…", null, (_, _) =>
+        menu.Items.Add("Settings", null, (_, _) =>
             SettingsWindow.Open(_settings, RectangleToScreen(ClientRectangle)));
         menu.Items.Add("Refresh now", null, (_, _) => _poller.RefreshNow());
         menu.Items.Add(new ToolStripSeparator());

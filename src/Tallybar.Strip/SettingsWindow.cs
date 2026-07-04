@@ -76,7 +76,8 @@ internal sealed class SettingsWindow : Form
         get
         {
             CreateParams cp = base.CreateParams;
-            cp.ExStyle |= Native.WS_EX_TOOLWINDOW; // keep off Alt-Tab
+            cp.ExStyle |= Native.WS_EX_TOOLWINDOW    // keep off Alt-Tab
+                        | Native.WS_EX_LAYERED;      // per-pixel-alpha translucent surface
             return cp;
         }
     }
@@ -84,19 +85,13 @@ internal sealed class SettingsWindow : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        Native.TryEnableAcrylic(Handle, _light ? 0xD9F7F5F2 : 0xD9201812);
-        int dark = _light ? 0 : 1;
-        Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
-        if (Environment.OSVersion.Version.Build >= 22000)
-        {
-            int round = Native.DWMWCP_ROUND;
-            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        }
-        else
-        {
-            Native.SetWindowRgn(Handle,
-                Native.CreateRoundRectRgn(0, 0, Width + 1, Height + 1, 12, 12), true);
-        }
+        Native.TryEnableAcrylic(Handle, _light ? 0x40F7F5F2u : 0x40201812u);
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        RenderSurface();
     }
 
     // --- model ---
@@ -174,7 +169,7 @@ internal sealed class SettingsWindow : Form
     internal void PickColor(Func<Color> get, Action<Color> set)
     {
         using var dlg = new ColorDialog { Color = get(), FullOpen = true };
-        if (dlg.ShowDialog(this) == DialogResult.OK) { set(dlg.Color); _s.Save(); Invalidate(); }
+        if (dlg.ShowDialog(this) == DialogResult.OK) { set(dlg.Color); _s.Save(); RenderSurface(); }
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
@@ -198,7 +193,7 @@ internal sealed class SettingsWindow : Form
         {
             _scroll += d * 0.22f; // exponential ease-out
         }
-        Invalidate();
+        RenderSurface();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -231,7 +226,7 @@ internal sealed class SettingsWindow : Form
         base.OnMouseMove(e);
         bool wasHot = _closeHot;
         _closeHot = _closeRect.Contains(e.Location);
-        if (_closeHot != wasHot) Invalidate(_closeRect.ToRect());
+        if (_closeHot != wasHot) RenderSurface();
 
         bool hand = _closeHot;
         if (!hand && TryRowAt(e.Location, out Row row, out PointF local))
@@ -245,18 +240,39 @@ internal sealed class SettingsWindow : Form
         if (e.Button != MouseButtons.Left) return;
         if (_closeRect.Contains(e.Location)) { Close(); return; }
         if (TryRowAt(e.Location, out Row row, out PointF local) && row.OnClick(this, local))
-            Invalidate();
+            RenderSurface();
     }
 
-    // --- paint ---
+    // --- paint (rendered to a layered ARGB surface for real translucency) ---
 
-    protected override void OnPaintBackground(PaintEventArgs e) => e.Graphics.Clear(Base);
+    protected override void OnPaintBackground(PaintEventArgs e) { /* layered; nothing to erase */ }
 
-    protected override void OnPaint(PaintEventArgs e)
+    private void RenderSurface()
     {
-        Graphics g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        if (!IsHandleCreated || IsDisposed) return;
+        int w = Width, h = Height;
+        if (w <= 0 || h <= 0) return;
+
+        using var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.Clear(Color.Transparent);
+            PaintContent(g);
+        }
+        LayeredSurface.Push(Handle, bmp, Left, Top);
+    }
+
+    private void PaintContent(Graphics g)
+    {
+        // Translucent rounded card so the desktop (and any compositor blur) shows through.
+        var card = new RectangleF(0, 0, Width - 1, Height - 1);
+        using (var bg = new SolidBrush(Color.FromArgb(_light ? 234 : 216, Base)))
+            Fill(g, card, bg, 12 * _sc);
+        using (var edge = new Pen(Color.FromArgb(_light ? 42 : 48, _light ? Color.Black : Color.White)))
+        using (var path = RoundedPath(card, 12 * _sc))
+            g.DrawPath(edge, path);
 
         // Header: title + close.
         using (var fTitle = new Font("Segoe UI", 13f * _sc, FontStyle.Bold, GraphicsUnit.Pixel))
@@ -306,14 +322,20 @@ internal sealed class SettingsWindow : Form
     {
         if (r.Width <= 0 || r.Height <= 0) return;
         if (radius < 0.5f) { g.FillRectangle(b, r); return; }
+        using var path = RoundedPath(r, radius);
+        g.FillPath(b, path);
+    }
+
+    private static GraphicsPath RoundedPath(RectangleF r, float radius)
+    {
         float d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
-        using var path = new GraphicsPath();
+        var path = new GraphicsPath();
         path.AddArc(r.Left, r.Top, d, d, 180, 90);
         path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
         path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
         path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
-        g.FillPath(b, path);
+        return path;
     }
 
     // --- launch at login ---
