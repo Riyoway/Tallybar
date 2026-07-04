@@ -494,7 +494,8 @@ internal sealed class StripWindow : Form
     {
         bool light = IsLightTheme(_settings);
         Color state = StateColor();
-        Color tone = AccentTone(state); // animated (gradient/rainbow) when a style is active
+        // Deepen the accent on light themes so the green/amber/red stays legible.
+        Color tone = Palette.Readable(AccentTone(state), light); // animated (gradient/rainbow) when active
         bool dim = _status is not FetchStatus.Ok;
         double shown = double.IsNaN(_shownFraction) ? _fraction : _shownFraction;
 
@@ -601,13 +602,14 @@ internal sealed class StripWindow : Form
         using (var fill = new SolidBrush(Color.FromArgb(dim ? 20 : 45, tone)))
             g.FillPolygon(fill, area);
 
+        bool light = IsLightTheme(_settings);
         string style = ColorAnimActive ? _settings.AnimationStyle : "pulse";
         if (style == "rainbow")
         {
             // Moving spectrum along the line: each segment a shifting hue.
             for (int i = 0; i < n - 1; i++)
             {
-                Color c = FromHsv((double)i / (n - 1) + AnimPhase, 0.72, 1.0);
+                Color c = Palette.Readable(FromHsv((double)i / (n - 1) + AnimPhase, 0.72, 1.0), light);
                 using var pen = new Pen(Color.FromArgb(alpha, c), 1.6f) { LineJoin = LineJoin.Round };
                 g.DrawLine(pen, pts[i], pts[i + 1]);
             }
@@ -615,7 +617,9 @@ internal sealed class StripWindow : Form
         else if (style == "gradient")
         {
             // A gradient that sweeps across the sparkline over time.
-            using var lgb = new LinearGradientBrush(r, _settings.Ok, _settings.Crit, LinearGradientMode.Horizontal)
+            using var lgb = new LinearGradientBrush(r,
+                Palette.Readable(_settings.Ok, light), Palette.Readable(_settings.Crit, light),
+                LinearGradientMode.Horizontal)
             { WrapMode = WrapMode.TileFlipX };
             lgb.TranslateTransform((float)(AnimPhase * r.Width), 0);
             using var pen = new Pen(lgb, 1.6f) { LineJoin = LineJoin.Round };
@@ -731,12 +735,13 @@ internal sealed class StripWindow : Form
     {
         if (_tray is null) return;
 
+        bool light = IsLightTheme(_settings);
         var rows = new List<(double Fraction, Color Tone, string Tip)>();
         foreach (IProvider p in ActiveProviders())
         {
             UsageSnapshot? s = _poller.Latest(p.Id).FirstOrDefault();
             if (s is null || double.IsNaN(s.Fraction)) continue;
-            rows.Add((s.Fraction, _settings.ColorFor(s.Fraction),
+            rows.Add((s.Fraction, Palette.Readable(_settings.ColorFor(s.Fraction), light),
                 $"{p.DisplayName} {(int)Math.Round(s.Fraction * 100)}%"));
         }
 

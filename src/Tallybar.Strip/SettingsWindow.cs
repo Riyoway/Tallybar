@@ -23,7 +23,8 @@ internal sealed class SettingsWindow : Form
     private readonly List<Row> _rows = [];
 
     internal Color Ink, Mut, Faint, Base;
-    internal Color Accent => _s.Ok; // live, so a colour change recolours controls on repaint
+    // Live, and deepened on light themes so the accent stays legible on the light card.
+    internal Color Accent => Palette.Readable(_s.Ok, _light);
     private RectangleF _closeRect;
     private bool _closeHot;
     private float _scroll;

@@ -203,7 +203,7 @@ internal sealed class PopoverWindow : Form
 
             if (isSel)
             {
-                using var selBg = new SolidBrush(_settings.Ok);
+                using var selBg = new SolidBrush(Accent);
                 FillRounded(g, selBg, tabRect, 9 * _sc);
             }
             else if (_hover == "tab:" + p.Id)
@@ -212,21 +212,21 @@ internal sealed class PopoverWindow : Form
                 FillRounded(g, hovBg, tabRect, 9 * _sc);
             }
 
-            Color fg = isSel ? TextOn(_settings.Ok) : _ink;
+            Color fg = isSel ? TextOn(Accent) : _ink;
 
             // Real brand logo, tinted to read on the current surface; monogram chip if absent.
             (string mono, Color brand) = Brand(p.Id);
             float tile = 22 * _sc;
             var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 4 * _sc, tile, tile);
-            Color logoColor = isSel ? TextOn(_settings.Ok) : LogoColor(p.Id, brand);
+            Color logoColor = isSel ? TextOn(Accent) : LogoColor(p.Id, brand);
 
             if (!Logos.Draw(g, p.Id, tileRect, logoColor))
             {
-                Color chip = isSel ? Color.FromArgb(70, TextOn(_settings.Ok)) : brand;
+                Color chip = isSel ? Color.FromArgb(70, TextOn(Accent)) : brand;
                 using (var tileBg = new SolidBrush(chip))
                     FillRounded(g, tileBg, tileRect, 6 * _sc);
                 using var fTile = new Font("Segoe UI", 9.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var tb = new SolidBrush(isSel ? TextOn(_settings.Ok) : TextOn(brand));
+                using var tb = new SolidBrush(isSel ? TextOn(Accent) : TextOn(brand));
                 var tfmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 g.DrawString(mono, fTile, tb, tileRect, tfmt);
             }
@@ -243,7 +243,7 @@ internal sealed class PopoverWindow : Form
                 FillRounded(g, barBg, barRect, barRect.Height / 2);
             if (s is not null && !double.IsNaN(s.Fraction))
             {
-                using var barFg = new SolidBrush(_settings.ColorFor(s.Fraction));
+                using var barFg = new SolidBrush(State(s.Fraction));
                 FillRounded(g, barFg,
                     barRect with { Width = Math.Max(barRect.Height, barRect.Width * (float)Math.Clamp(s.Fraction, 0, 1)) },
                     barRect.Height / 2);
@@ -302,7 +302,7 @@ internal sealed class PopoverWindow : Form
 
         foreach (UsageSnapshot s in snaps)
         {
-            Color tone = _settings.ColorFor(s.Fraction);
+            Color tone = State(s.Fraction);
 
             g.DrawString(TitleCase(s.WindowLabel), fTitle, inkB, Pad, y);
             y += 20 * _sc;
@@ -422,6 +422,10 @@ internal sealed class PopoverWindow : Form
     }
 
     // --- helpers ---
+
+    // State/accent colours, deepened on light themes so they stay legible.
+    private Color Accent => Palette.Readable(_settings.Ok, _light);
+    private Color State(double fraction) => Palette.Readable(_settings.ColorFor(fraction), _light);
 
     private static Color TextOn(Color bg)
         => bg.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
