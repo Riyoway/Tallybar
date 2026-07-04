@@ -66,6 +66,10 @@ dotnet run --project src/Tallybar.Strip
 
 The strip appears just left of the clock after the first fetch (a few seconds).
 
+`scripts/dev.ps1` is a convenience wrapper — it stops any running instance (which
+otherwise locks the exe), builds, and launches. `scripts/dev.ps1 -Probe` instead prints
+each provider's usage to the console, handy for checking credentials without the UI.
+
 | Action | Effect |
 |--------|--------|
 | Click the strip (or tray icon) | Open the usage popover |

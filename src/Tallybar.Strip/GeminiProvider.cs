@@ -188,11 +188,21 @@ public sealed partial class GeminiProvider : IProvider
 
     private static IEnumerable<string> OAuthJsCandidates()
     {
-        const string rel = @"@google\gemini-cli-core\dist\src\code_assist\oauth2.js";
         foreach (string root in NodeModuleRoots())
         {
-            string c = Path.Combine(root, rel);
-            if (File.Exists(c)) yield return c;
+            // Classic layout: a separate gemini-cli-core package.
+            string oauth = Path.Combine(root, @"@google\gemini-cli-core\dist\src\code_assist\oauth2.js");
+            if (File.Exists(oauth)) yield return oauth;
+
+            // Core nested inside the CLI package.
+            string nested = Path.Combine(root, @"@google\gemini-cli\node_modules\@google\gemini-cli-core\dist\src\code_assist\oauth2.js");
+            if (File.Exists(nested)) yield return nested;
+
+            // Bundled (esbuild) layout: the constants live in bundle/chunk-*.js.
+            string bundle = Path.Combine(root, @"@google\gemini-cli\bundle");
+            if (Directory.Exists(bundle))
+                foreach (string js in Directory.EnumerateFiles(bundle, "*.js"))
+                    yield return js;
         }
     }
 
@@ -228,7 +238,7 @@ public sealed partial class GeminiProvider : IProvider
             });
             if (p is null) return null;
             string outp = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(4000);
+            p.WaitForExit(8000); // node/npm cold start can exceed a few seconds
             return outp;
         }
         catch { return null; }
