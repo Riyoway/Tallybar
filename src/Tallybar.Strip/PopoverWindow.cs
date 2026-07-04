@@ -39,13 +39,6 @@ internal sealed class PopoverWindow : Form
         _open.Activate();
     }
 
-    internal static PopoverWindow OpenForShot(Settings settings, Poller poller, Rectangle anchor)
-    {
-        var w = new PopoverWindow(settings, poller, anchor);
-        w.CreateControl();
-        return w;
-    }
-
     private PopoverWindow(Settings settings, Poller poller, Rectangle anchor)
     {
         _settings = settings;
@@ -196,18 +189,19 @@ internal sealed class PopoverWindow : Form
 
             Color fg = isSel ? TextOn(_settings.Ok) : _ink;
 
-            // Monogram tile.
+            // Monogram tile: a small brand-coloured chip so providers are distinguishable.
+            (string mono, Color brand) = Brand(p.Id);
             float tile = 20 * _sc;
             var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 5 * _sc, tile, tile);
-            using (var tileBg = new SolidBrush(isSel
-                ? Color.FromArgb(60, TextOn(_settings.Ok))
-                : _faint))
+            Color chip = isSel ? Color.FromArgb(70, TextOn(_settings.Ok)) : brand;
+            Color monoColor = isSel ? TextOn(_settings.Ok) : TextOn(brand);
+            using (var tileBg = new SolidBrush(chip))
                 FillRounded(g, tileBg, tileRect, 6 * _sc);
-            using (var fTile = new Font("Segoe UI", 11f * _sc, FontStyle.Bold, GraphicsUnit.Pixel))
-            using (var tb = new SolidBrush(fg))
+            using (var fTile = new Font("Segoe UI", 9.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (var tb = new SolidBrush(monoColor))
             {
                 var tfmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                g.DrawString(p.DisplayName[..1], fTile, tb, tileRect, tfmt);
+                g.DrawString(mono, fTile, tb, tileRect, tfmt);
             }
 
             // Name.
@@ -396,6 +390,16 @@ internal sealed class PopoverWindow : Form
 
     private static Color TextOn(Color bg)
         => bg.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
+
+    private static (string Monogram, Color Brand) Brand(string id) => id switch
+    {
+        "claude" => ("Cl", Color.FromArgb(0xD9, 0x77, 0x57)),
+        "codex" => ("Cx", Color.FromArgb(0x10, 0xA3, 0x7F)),
+        "copilot" => ("Co", Color.FromArgb(0x54, 0x6E, 0x7A)),
+        "gemini" => ("Ge", Color.FromArgb(0x42, 0x85, 0xF4)),
+        "cursor" => ("Cu", Color.FromArgb(0x6B, 0x72, 0x80)),
+        _ => (id.Length > 0 ? char.ToUpperInvariant(id[0]).ToString() : "?", Color.FromArgb(0x80, 0x86, 0x94)),
+    };
 
     private static string TitleCase(string label)
         => label.Length == 0 ? label : char.ToUpperInvariant(label[0]) + label[1..];

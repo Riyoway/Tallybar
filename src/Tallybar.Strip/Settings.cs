@@ -39,8 +39,9 @@ public sealed class Settings
 
     // --- behavior ---
     public int PollSeconds { get; set; } = 60;
-    public bool ClaudeEnabled { get; set; } = true;
-    public bool CodexEnabled { get; set; } = true;
+
+    /// <summary>Per-provider enable flags by id; absent id defaults to enabled.</summary>
+    public Dictionary<string, bool> Enabled { get; set; } = [];
 
     public const int MinWidth = 80, MaxWidth = 400;
     public const int MinHeight = 20, MaxHeight = 80;
@@ -48,12 +49,8 @@ public sealed class Settings
     /// <summary>Raised after Save(); listeners re-read whatever they cache.</summary>
     public event Action? Changed;
 
-    public bool IsProviderEnabled(string id) => id switch
-    {
-        "claude" => ClaudeEnabled,
-        "codex" => CodexEnabled,
-        _ => true,
-    };
+    public bool IsProviderEnabled(string id) => Enabled.GetValueOrDefault(id, true);
+    public void SetProviderEnabled(string id, bool on) => Enabled[id] = on;
 
     public Color Ok => Parse(OkColor, Color.FromArgb(79, 214, 147));
     public Color Warn => Parse(WarnColor, Color.FromArgb(255, 207, 107));

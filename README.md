@@ -7,6 +7,10 @@ coding-plan quota is left — a live sparkline, the current session percentage, 
 countdown to the next reset. No window to open, no tab to check: the number you care
 about is just always there.
 
+Supported providers: **Claude**, **Codex** (OpenAI), **Copilot**, **Gemini**, and
+**Cursor** — each read from the session that provider's own CLI or app already keeps
+on your machine.
+
 ![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)
 ![Windows 10+](https://img.shields.io/badge/Windows-10%2B-0a0a0c?style=flat-square)
 ![.NET 10](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square)
@@ -35,11 +39,20 @@ can plan a long agent run around your reset window at a glance.
 
 ## Privacy
 
-Tallybar has no backend and no telemetry. It reuses the sessions your CLIs already
-maintain locally — [Claude Code](https://claude.com/claude-code)'s
-`~/.claude/.credentials.json` and the codex CLI's `~/.codex/auth.json` — sends each
-token only to its own vendor's usage endpoint, and stores nothing of its own. If a
-token has expired, run `claude` / `codex` once to refresh it.
+Tallybar has no backend and no telemetry. It reuses the sessions your tools already
+maintain locally and sends each token only to that vendor's own usage endpoint,
+storing nothing of its own:
+
+| Provider | Source |
+|----------|--------|
+| Claude | `~/.claude/.credentials.json` (Claude Code OAuth) |
+| Codex | `~/.codex/auth.json` (codex CLI) |
+| Copilot | `gh auth token` (GitHub CLI) |
+| Gemini | `~/.gemini/oauth_creds.json` (gemini CLI; refreshed in place) |
+| Cursor | `%APPDATA%\Cursor\…\state.vscdb` (Cursor app, read-only) |
+
+A provider simply shows "not configured" until its CLI/app is signed in. If a token has
+expired, run that tool once to refresh it.
 
 ## Getting started
 

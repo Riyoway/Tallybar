@@ -13,30 +13,6 @@ internal static class Program
             return;
         }
 
-        if (args.Contains("--shot"))
-        {
-            string path = args[Array.IndexOf(args, "--shot") + 1];
-            try
-            {
-                Application.EnableVisualStyles();
-                var settings2 = Settings.Load();
-                var providers = new IProvider[] { new ClaudeProvider(), new CodexProvider() };
-                using var poller2 = new Poller(providers, settings2);
-                foreach (IProvider prov in providers)
-                {
-                    if (!prov.IsConfigured) continue;
-                    try { poller2.Seed(prov.Id, prov.FetchAsync(CancellationToken.None).GetAwaiter().GetResult()); }
-                    catch { }
-                }
-                using var win = PopoverWindow.OpenForShot(settings2, poller2, new System.Drawing.Rectangle(1600, 1040, 150, 40));
-                using var bmp = new System.Drawing.Bitmap(win.Width, win.Height);
-                win.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, win.Width, win.Height));
-                bmp.Save(path);
-            }
-            catch (Exception ex) { System.IO.File.WriteAllText(path + ".err.txt", ex.ToString()); }
-            return;
-        }
-
         using var single = new Mutex(initiallyOwned: true, "Tallybar.SingleInstance", out bool isNew);
         if (!isNew) return; // already running
 
@@ -45,7 +21,7 @@ internal static class Program
         Application.SetCompatibleTextRenderingDefault(false);
 
         Settings settings = Settings.Load();
-        using var poller = new Poller([new ClaudeProvider(), new CodexProvider()], settings);
+        using var poller = new Poller(Providers.All, settings);
         using var strip = new StripWindow(settings, poller);
 
         // Secondary-monitor strips, (re)built only when the wanted count actually changes,
@@ -83,7 +59,7 @@ internal static class Program
     /// smallest runnable check of the provider path (run from a console, no UI).</summary>
     private static void Probe()
     {
-        foreach (IProvider provider in (IProvider[])[new ClaudeProvider(), new CodexProvider()])
+        foreach (IProvider provider in Providers.All)
         {
             Console.WriteLine($"provider={provider.Id} configured={provider.IsConfigured}");
             if (!provider.IsConfigured) continue;

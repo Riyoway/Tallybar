@@ -11,6 +11,19 @@
     <AssemblyName>Tallybar</AssemblyName>
     <RootNamespace>Tallybar</RootNamespace>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+    <!--
+      NU1903: the bundled native SQLite carries an advisory for maliciously crafted
+      databases. Tallybar only opens the user's own Cursor state DB read-only to read one
+      value, never an untrusted database, so the exposure does not apply. Pinned to the
+      newest available native build; drop this suppression once a patched one ships.
+    -->
+    <NoWarn>$(NoWarn);NU1903</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <!-- Override the transitive native SQLite to a patched build (GHSA-2m69-gcr7-jv3q). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
+  </ItemGroup>
 
 </Project>

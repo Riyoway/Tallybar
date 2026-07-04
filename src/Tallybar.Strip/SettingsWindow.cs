@@ -104,11 +104,16 @@ internal sealed class SettingsWindow : Form
     private void BuildRows()
     {
         _rows.Add(new Section("Providers"));
-        _rows.Add(new Toggle("Claude", () => _s.ClaudeEnabled, v => _s.ClaudeEnabled = v));
-        _rows.Add(new Toggle("Codex", () => _s.CodexEnabled, v => _s.CodexEnabled = v));
-        _rows.Add(new Segment("Strip shows", ["Cycle", "Claude", "Codex"],
-            () => Array.IndexOf(new[] { "cycle", "claude", "codex" }, _s.StripProvider) is var i && i >= 0 ? i : 0,
-            i => _s.StripProvider = new[] { "cycle", "claude", "codex" }[i]));
+        foreach (IProvider p in Providers.All)
+        {
+            string id = p.Id;
+            _rows.Add(new Toggle(p.DisplayName, () => _s.IsProviderEnabled(id), v => _s.SetProviderEnabled(id, v)));
+        }
+        string[] showIds = ["cycle", .. Providers.All.Select(p => p.Id)];
+        string[] showNames = ["Cycle all", .. Providers.All.Select(p => p.DisplayName)];
+        _rows.Add(new Choice("Strip shows", showNames,
+            () => Array.IndexOf(showIds, _s.StripProvider) is var i && i >= 0 ? i : 0,
+            i => _s.StripProvider = showIds[i]));
         _rows.Add(new Stepper("Cycle every", 3, 120, 1, () => _s.CycleSeconds, v => _s.CycleSeconds = v, v => $"{v}s"));
 
         _rows.Add(new Section("Strip content"));
@@ -479,6 +484,45 @@ internal sealed class SettingsWindow : Form
             Compute(w, null);
             return _rects.Any(r => r.Contains(p));
         }
+    }
+
+    // Compact selector for many options: shows the current value, cycles on click.
+    private sealed class Choice(string label, string[] options, Func<int> getIndex, Action<int> setIndex) : Row
+    {
+        private RectangleF _value;
+
+        public override float Height(float s) => 30 * s;
+
+        private void Compute(SettingsWindow w, string text)
+        {
+            using var f = new Font("Segoe UI", 12f * w.Sc, FontStyle.Bold, GraphicsUnit.Pixel);
+            using Bitmap tmp = new(1, 1);
+            using Graphics mg = Graphics.FromImage(tmp);
+            float chevron = 14 * w.Sc;
+            float tw = mg.MeasureString(text, f).Width + chevron;
+            _value = new RectangleF(w.Width - w.RowPad - tw, Y, tw, H);
+        }
+
+        public override void Paint(Graphics g, SettingsWindow w)
+        {
+            PaintLabel(g, w, label);
+            string text = options[Math.Clamp(getIndex(), 0, options.Length - 1)];
+            Compute(w, text);
+            using var f = new Font("Segoe UI", 12f * w.Sc, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var b = new SolidBrush(w.Accent);
+            g.DrawString(text, f, b, _value.Left, Y + (H - f.Height) / 2);
+            using var fCh = new Font("Segoe UI", 9f * w.Sc, FontStyle.Regular, GraphicsUnit.Pixel);
+            g.DrawString("▾", fCh, b, _value.Right - 11 * w.Sc, Y + (H - fCh.Height) / 2);
+        }
+
+        public override bool OnClick(SettingsWindow w, PointF p)
+        {
+            setIndex((getIndex() + 1) % options.Length);
+            w.Save();
+            return true;
+        }
+
+        public override bool Hand(SettingsWindow w, PointF p) => true;
     }
 
     private sealed class Stepper(
