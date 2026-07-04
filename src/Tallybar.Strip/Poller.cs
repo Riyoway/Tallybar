@@ -48,6 +48,14 @@ public sealed class Poller : IDisposable
     public IReadOnlyList<UsageSnapshot> Latest(string providerId)
         => _latest.TryGetValue(providerId, out var list) ? list : [];
 
+    /// <summary>Inject snapshots directly (verification harness; no timers involved).</summary>
+    internal void Seed(string providerId, IReadOnlyList<UsageSnapshot> snaps)
+    {
+        _latest[providerId] = [.. snaps];
+        if (snaps.FirstOrDefault() is { } primary && !double.IsNaN(primary.Fraction))
+            History(providerId).Push((float)primary.Fraction);
+    }
+
     public Ring History(string providerId)
     {
         if (!_history.TryGetValue(providerId, out Ring? ring))

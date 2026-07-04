@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -5,19 +6,26 @@ using System.Windows.Forms;
 namespace Tallybar;
 
 /// <summary>
-/// The click-to-open flyout: per-provider usage bars with reset countdowns on an
-/// acrylic (blur-behind) card. Closes when it loses focus. One instance at a time.
+/// The click-to-open flyout, styled like a native menu-bar popover: a provider tab bar
+/// (monogram tile + name + mini usage bar), the selected provider's windows as titled
+/// progress sections ("8% used" / "Resets in 3h 41m"), and a menu footer
+/// (Refresh · Settings… · About · Quit). Acrylic card, closes on focus loss.
 /// </summary>
 internal sealed class PopoverWindow : Form
 {
     private static PopoverWindow? _open;
+    private static string? _selectedId; // persists across opens
 
     private readonly Settings _settings;
     private readonly Poller _poller;
-    private readonly Rectangle _anchor; // screen rect of the strip
-    private Rectangle _refreshRect;
-    private Rectangle _settingsRect;
-    private bool _acrylic;
+    private readonly Rectangle _anchor;
+    private readonly float _sc;
+    private readonly bool _light;
+    private readonly Color _ink, _mut, _faint, _base;
+
+    private readonly List<(RectangleF Rect, string Id)> _tabs = [];
+    private readonly List<(RectangleF Rect, string Id)> _menu = [];
+    private string _hover = "";
 
     public static void Toggle(Settings settings, Poller poller, Rectangle anchor)
     {
@@ -31,11 +39,25 @@ internal sealed class PopoverWindow : Form
         _open.Activate();
     }
 
+    internal static PopoverWindow OpenForShot(Settings settings, Poller poller, Rectangle anchor)
+    {
+        var w = new PopoverWindow(settings, poller, anchor);
+        w.CreateControl();
+        return w;
+    }
+
     private PopoverWindow(Settings settings, Poller poller, Rectangle anchor)
     {
         _settings = settings;
         _poller = poller;
         _anchor = anchor;
+        _sc = DeviceDpi / 96f;
+        _light = StripWindow.IsLightTheme(settings);
+
+        _base = _light ? Color.White : Color.Black;
+        _ink = _light ? Color.FromArgb(24, 28, 36) : Color.FromArgb(236, 239, 246);
+        _mut = _light ? Color.FromArgb(110, 116, 128) : Color.FromArgb(152, 159, 176);
+        _faint = Color.FromArgb(_light ? 26 : 30, _light ? Color.Black : Color.White);
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -43,9 +65,21 @@ internal sealed class PopoverWindow : Form
         TopMost = true;
         Text = "Tallybar";
         DoubleBuffered = true;
-        BackColor = StripWindow.IsLightTheme(settings) ? Color.White : Color.Black;
+        BackColor = _base;
 
         _poller.Updated += OnPollerUpdated;
+        Place();
+    }
+
+    // --- data ---
+
+    private List<IProvider> Providers() =>
+        [.. _poller.Providers.Where(p => _settings.IsProviderEnabled(p.Id))];
+
+    private IProvider? Selected()
+    {
+        var list = Providers();
+        return list.FirstOrDefault(p => p.Id == _selectedId) ?? list.FirstOrDefault();
     }
 
     private void OnPollerUpdated()
@@ -53,17 +87,40 @@ internal sealed class PopoverWindow : Form
         if (!IsDisposed) Invalidate();
     }
 
+    // --- geometry ---
+
+    private float Pad => 16 * _sc;
+    private float TabsH => 64 * _sc;
+    private float MenuRowH => 30 * _sc;
+
+    private float DetailHeight(IProvider? p)
+    {
+        if (p is null) return 60 * _sc;
+        var snaps = _poller.Latest(p.Id).Where(s => !double.IsNaN(s.Fraction)).ToList();
+        float head = 52 * _sc;
+        float windows = snaps.Count == 0 ? 30 * _sc : snaps.Count * 62 * _sc;
+        return head + windows;
+    }
+
+    private void Place()
+    {
+        int width = (int)(330 * _sc);
+        float menuH = MenuRowH * 4 + 14 * _sc;
+        int height = (int)(TabsH + DetailHeight(Selected()) + menuH + 10 * _sc);
+
+        Rectangle wa = Screen.FromRectangle(_anchor).WorkingArea;
+        height = Math.Min(height, wa.Height - 16);
+        int x = Math.Max(wa.Left + 8, Math.Min(_anchor.Right - width, wa.Right - width - 8));
+        int y = Math.Max(wa.Top + 8, _anchor.Top - height - (int)(10 * _sc));
+        SetBounds(x, y, width, height);
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        bool light = StripWindow.IsLightTheme(_settings);
-
-        // Acrylic blur-behind with a theme tint (AABBGGRR); falls back to opaque paint.
-        _acrylic = Native.TryEnableAcrylic(Handle, light ? 0xD9F7F5F2 : 0xD9201812);
-
-        int dark = light ? 0 : 1;
+        Native.TryEnableAcrylic(Handle, _light ? 0xD9F7F5F2 : 0xD9201812);
+        int dark = _light ? 0 : 1;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
-
         if (Environment.OSVersion.Version.Build >= 22000)
         {
             int round = Native.DWMWCP_ROUND;
@@ -74,29 +131,6 @@ internal sealed class PopoverWindow : Form
             Native.SetWindowRgn(Handle,
                 Native.CreateRoundRectRgn(0, 0, Width + 1, Height + 1, 12, 12), true);
         }
-    }
-
-    protected override void OnLoad(EventArgs e)
-    {
-        base.OnLoad(e);
-        float s = DeviceDpi / 96f;
-
-        int rows = 0, providers = 0;
-        foreach (IProvider p in EnabledProviders())
-        {
-            providers++;
-            rows += Math.Max(1, _poller.Latest(p.Id).Count);
-        }
-        if (providers == 0) { providers = 1; rows = 1; }
-
-        int width = (int)(330 * s);
-        int height = (int)((16 + providers * 30 + rows * 40 + 40) * s);
-
-        // Above the strip, right-aligned to it, clamped to the working area.
-        Rectangle wa = Screen.FromRectangle(_anchor).WorkingArea;
-        int x = Math.Max(wa.Left + 8, Math.Min(_anchor.Right - width, wa.Right - width - 8));
-        int y = Math.Max(wa.Top + 8, _anchor.Top - height - (int)(10 * s));
-        SetBounds(x, y, width, height);
     }
 
     protected override void OnDeactivate(EventArgs e)
@@ -112,127 +146,276 @@ internal sealed class PopoverWindow : Form
         base.OnFormClosed(e);
     }
 
-    private List<IProvider> EnabledProviders() =>
-        [.. _poller.Providers.Where(p => _settings.IsProviderEnabled(p.Id))];
+    // --- paint ---
+
+    protected override void OnPaintBackground(PaintEventArgs e) => e.Graphics.Clear(_base);
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e);
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-        float s = DeviceDpi / 96f;
-        bool light = StripWindow.IsLightTheme(_settings);
+        _tabs.Clear();
+        _menu.Clear();
 
-        Color ink = light ? Color.FromArgb(20, 24, 32) : Color.FromArgb(233, 236, 244);
-        Color mut = light ? Color.FromArgb(110, 116, 128) : Color.FromArgb(154, 161, 178);
-        Color faint = Color.FromArgb(light ? 30 : 24, light ? Color.Black : Color.White);
+        float y = PaintTabs(g);
+        y = PaintDetail(g, y);
+        PaintMenu(g, y);
+    }
 
-        // With blur-behind acrylic, GDI pixels are composited over the blur — the base
-        // coat must match the theme (black shows the dark tint through; anything else,
-        // like the default Control color, washes the whole card out white).
-        if (_acrylic)
-            g.Clear(light ? Color.White : Color.Black);
-        else // opaque fallback (no blur available)
-            g.Clear(light ? Color.FromArgb(242, 245, 247) : Color.FromArgb(18, 21, 31));
+    private float PaintTabs(Graphics g)
+    {
+        var providers = Providers();
+        if (providers.Count == 0) return TabsH;
 
-        using var fTitle = new Font("Segoe UI", 10.5f * s, FontStyle.Bold, GraphicsUnit.Pixel);
-        using var fName = new Font("Segoe UI", 13f * s, FontStyle.Bold, GraphicsUnit.Pixel);
-        using var fRow = new Font("Segoe UI", 12f * s, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var fSmall = new Font("Segoe UI", 11f * s, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var inkB = new SolidBrush(ink);
-        using var mutB = new SolidBrush(mut);
+        float tabW = Math.Min(72 * _sc, (Width - Pad * 2) / providers.Count);
+        float x = Pad;
+        float top = 10 * _sc;
+        IProvider? selected = Selected();
 
-        float pad = 14 * s;
-        float y = pad;
-        float w = Width - pad * 2;
+        using var fName = new Font("Segoe UI", 10.5f * _sc, FontStyle.Regular, GraphicsUnit.Pixel);
+        var fmt = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
 
-        foreach (IProvider p in EnabledProviders())
+        foreach (IProvider p in providers)
         {
-            var snaps = _poller.Latest(p.Id);
-            UsageSnapshot? first = snaps.FirstOrDefault();
+            var tabRect = new RectangleF(x, top, tabW, TabsH - 16 * _sc);
+            _tabs.Add((tabRect, p.Id));
+            bool isSel = p.Id == selected?.Id;
 
-            g.DrawString(p.DisplayName, fName, inkB, pad, y);
-            string state = first?.Status switch
+            if (isSel)
             {
-                FetchStatus.AuthError => "sign-in needed",
-                FetchStatus.NotConfigured => "not configured",
-                FetchStatus.Offline => "offline",
-                FetchStatus.Stale => "stale",
-                _ => "",
-            };
-            if (state.Length > 0)
-            {
-                SizeF sz = g.MeasureString(state, fSmall);
-                g.DrawString(state, fSmall, mutB, Width - pad - sz.Width, y + 2 * s);
+                using var selBg = new SolidBrush(_settings.Ok);
+                FillRounded(g, selBg, tabRect, 9 * _sc);
             }
-            y += 26 * s;
-
-            if (snaps.Count == 0 || first is null || double.IsNaN(first.Fraction))
+            else if (_hover == "tab:" + p.Id)
             {
-                g.DrawString("no data yet", fSmall, mutB, pad, y);
-                y += 40 * s;
+                using var hovBg = new SolidBrush(_faint);
+                FillRounded(g, hovBg, tabRect, 9 * _sc);
             }
-            else
+
+            Color fg = isSel ? TextOn(_settings.Ok) : _ink;
+
+            // Monogram tile.
+            float tile = 20 * _sc;
+            var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 5 * _sc, tile, tile);
+            using (var tileBg = new SolidBrush(isSel
+                ? Color.FromArgb(60, TextOn(_settings.Ok))
+                : _faint))
+                FillRounded(g, tileBg, tileRect, 6 * _sc);
+            using (var fTile = new Font("Segoe UI", 11f * _sc, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (var tb = new SolidBrush(fg))
             {
-                foreach (UsageSnapshot snap in snaps)
-                {
-                    if (double.IsNaN(snap.Fraction)) continue;
-                    Color tone = _settings.ColorFor(snap.Fraction);
-
-                    g.DrawString(snap.WindowLabel, fRow, mutB, pad, y);
-                    string pct = $"{(int)Math.Round(snap.Fraction * 100)}%";
-                    SizeF pctSz = g.MeasureString(pct, fRow);
-                    using (var toneB = new SolidBrush(tone))
-                        g.DrawString(pct, fRow, toneB, Width - pad - pctSz.Width, y);
-                    y += 19 * s;
-
-                    var barRect = new RectangleF(pad, y, w, 5 * s);
-                    using (var back = new SolidBrush(faint))
-                        FillRounded(g, back, barRect, 2.5f * s);
-                    using (var fore = new SolidBrush(tone))
-                        FillRounded(g, fore,
-                            new RectangleF(pad, y, w * (float)Math.Clamp(snap.Fraction, 0, 1), 5 * s), 2.5f * s);
-                    y += 9 * s;
-
-                    if (snap.ResetsAt is { } r)
-                        g.DrawString("resets in " + FormatCountdown(r), fSmall, mutB, pad, y);
-                    y += 12 * s;
-                }
-                y += 8 * s;
+                var tfmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.DrawString(p.DisplayName[..1], fTile, tb, tileRect, tfmt);
             }
+
+            // Name.
+            using (var nb = new SolidBrush(fg))
+                g.DrawString(p.DisplayName, fName, nb,
+                    new RectangleF(x, top + tile + 8 * _sc, tabW, fName.Height), fmt);
+
+            // Mini usage bar.
+            UsageSnapshot? s = _poller.Latest(p.Id).FirstOrDefault();
+            var barRect = new RectangleF(x + tabW * 0.2f, tabRect.Bottom + 4 * _sc, tabW * 0.6f, 3.5f * _sc);
+            using (var barBg = new SolidBrush(_faint))
+                FillRounded(g, barBg, barRect, barRect.Height / 2);
+            if (s is not null && !double.IsNaN(s.Fraction))
+            {
+                using var barFg = new SolidBrush(_settings.ColorFor(s.Fraction));
+                FillRounded(g, barFg,
+                    barRect with { Width = Math.Max(barRect.Height, barRect.Width * (float)Math.Clamp(s.Fraction, 0, 1)) },
+                    barRect.Height / 2);
+            }
+
+            x += tabW;
+        }
+        return TabsH + 4 * _sc;
+    }
+
+    private float PaintDetail(Graphics g, float y)
+    {
+        IProvider? p = Selected();
+        using var fBig = new Font("Segoe UI", 16f * _sc, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var fTitle = new Font("Segoe UI", 12.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var fSmall = new Font("Segoe UI", 11f * _sc, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var inkB = new SolidBrush(_ink);
+        using var mutB = new SolidBrush(_mut);
+
+        if (p is null)
+        {
+            g.DrawString("No providers enabled", fSmall, mutB, Pad, y + 10 * _sc);
+            return y + 60 * _sc;
         }
 
-        // Footer: age + actions.
-        using (var pen = new Pen(faint))
-            g.DrawLine(pen, pad, Height - 34 * s, Width - pad, Height - 34 * s);
+        var all = _poller.Latest(p.Id);
+        var snaps = all.Where(s => !double.IsNaN(s.Fraction)).ToList();
 
-        DateTimeOffset? newest = EnabledProviders()
-            .SelectMany(p => _poller.Latest(p.Id))
-            .Select(sn => (DateTimeOffset?)sn.FetchedAt)
-            .DefaultIfEmpty(null)
-            .Max();
-        string age = newest is { } t ? $"updated {Math.Max(0, (int)(DateTimeOffset.UtcNow - t).TotalSeconds)}s ago" : "";
-        g.DrawString(age, fSmall, mutB, pad, Height - 27 * s);
+        // Header: name + updated-ago / status.
+        g.DrawString(p.DisplayName, fBig, inkB, Pad, y + 2 * _sc);
+        DateTimeOffset? fetched = all.Select(s => (DateTimeOffset?)s.FetchedAt).DefaultIfEmpty(null).Max();
+        string age = fetched is { } t ? $"Updated {Age(t)}" : "Waiting for data…";
+        g.DrawString(age, fSmall, mutB, Pad, y + 24 * _sc);
+        string state = all.FirstOrDefault()?.Status switch
+        {
+            FetchStatus.AuthError => "sign-in needed",
+            FetchStatus.NotConfigured => "not configured",
+            FetchStatus.Offline => "offline",
+            FetchStatus.Stale => "stale",
+            _ => "",
+        };
+        if (state.Length > 0)
+        {
+            SizeF sz = g.MeasureString(state, fSmall);
+            g.DrawString(state, fSmall, mutB, Width - Pad - sz.Width, y + 24 * _sc);
+        }
+        y += 46 * _sc;
+        using (var pen = new Pen(_faint)) g.DrawLine(pen, Pad, y, Width - Pad, y);
+        y += 6 * _sc;
 
-        // Footer actions: system icon-font glyph + label.
-        float glyphPx = 12 * s, gap = 5 * s;
-        using Font fIcon = Icons.GetFont(glyphPx);
-        using var accent = new SolidBrush(_settings.Ok);
+        if (snaps.Count == 0)
+        {
+            g.DrawString("no data yet", fSmall, mutB, Pad, y + 4 * _sc);
+            return y + 30 * _sc;
+        }
 
-        float setW = g.MeasureString(Icons.Settings, fIcon).Width - 4 + gap
-                   + g.MeasureString("Settings", fTitle).Width;
-        float refW = g.MeasureString(Icons.Refresh, fIcon).Width - 4 + gap
-                   + g.MeasureString("Refresh", fTitle).Width;
-        int actionY = (int)(Height - 28 * s);
-        _settingsRect = new Rectangle((int)(Width - pad - setW), actionY, (int)setW + 4, (int)(16 * s));
-        _refreshRect = new Rectangle((int)(_settingsRect.Left - refW - 16 * s), actionY, (int)refW + 4, (int)(16 * s));
+        foreach (UsageSnapshot s in snaps)
+        {
+            Color tone = _settings.ColorFor(s.Fraction);
 
-        float x1 = _refreshRect.Left + Icons.Draw(g, Icons.Refresh, glyphPx, accent, _refreshRect.Left, actionY + 1 * s);
-        g.DrawString("Refresh", fTitle, accent, x1 + gap, actionY);
-        float x2 = _settingsRect.Left + Icons.Draw(g, Icons.Settings, glyphPx, accent, _settingsRect.Left, actionY + 1 * s);
-        g.DrawString("Settings", fTitle, accent, x2 + gap, actionY);
+            g.DrawString(TitleCase(s.WindowLabel), fTitle, inkB, Pad, y);
+            y += 20 * _sc;
+
+            var barRect = new RectangleF(Pad, y, Width - Pad * 2, 6 * _sc);
+            using (var barBg = new SolidBrush(_faint))
+                FillRounded(g, barBg, barRect, 3 * _sc);
+            using (var barFg = new SolidBrush(tone))
+                FillRounded(g, barFg,
+                    barRect with { Width = Math.Max(barRect.Height, barRect.Width * (float)Math.Clamp(s.Fraction, 0, 1)) },
+                    3 * _sc);
+            y += 11 * _sc;
+
+            g.DrawString($"{(int)Math.Round(s.Fraction * 100)}% used", fSmall, mutB, Pad, y);
+            if (s.ResetsAt is { } r)
+            {
+                string reset = "Resets in " + Countdown(r);
+                SizeF sz = g.MeasureString(reset, fSmall);
+                g.DrawString(reset, fSmall, mutB, Width - Pad - sz.Width, y);
+            }
+            y += 31 * _sc;
+        }
+        return y;
+    }
+
+    private void PaintMenu(Graphics g, float y)
+    {
+        using (var pen = new Pen(_faint)) g.DrawLine(pen, Pad, y, Width - Pad, y);
+        y += 6 * _sc;
+
+        using var fRow = new Font("Segoe UI", 12f * _sc, FontStyle.Regular, GraphicsUnit.Pixel);
+
+        void Row(string id, string text, string glyph = "")
+        {
+            var rect = new RectangleF(6 * _sc, y, Width - 12 * _sc, MenuRowH);
+            _menu.Add((rect, id));
+            if (_hover == id)
+            {
+                using var hov = new SolidBrush(_faint);
+                FillRounded(g, hov, rect, 6 * _sc);
+            }
+            float tx = Pad;
+            using var b = new SolidBrush(_ink);
+            if (glyph.Length > 0)
+                tx += Icons.Draw(g, glyph, 12 * _sc, b, tx, y + (MenuRowH - 14 * _sc) / 2) + 8 * _sc;
+            g.DrawString(text, fRow, b, tx, y + (MenuRowH - fRow.Height) / 2);
+            y += MenuRowH;
+        }
+
+        Row("refresh", "Refresh", Icons.Refresh);
+        Row("settings", "Settings…", Icons.Settings);
+        Row("about", "About Tallybar");
+        Row("quit", "Quit");
+    }
+
+    // --- input ---
+
+    private string HitTest(Point pt)
+    {
+        foreach ((RectangleF r, string id) in _tabs)
+            if (r.Contains(pt)) return "tab:" + id;
+        foreach ((RectangleF r, string id) in _menu)
+            if (r.Contains(pt)) return id;
+        return "";
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        string hit = HitTest(e.Location);
+        if (hit != _hover)
+        {
+            _hover = hit;
+            Invalidate();
+        }
+        Cursor = hit.Length > 0 ? Cursors.Hand : Cursors.Default;
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (e.Button != MouseButtons.Left) return;
+        string hit = HitTest(e.Location);
+        if (hit.StartsWith("tab:", StringComparison.Ordinal))
+        {
+            _selectedId = hit[4..];
+            Place();      // height depends on the selected provider's window count
+            Invalidate();
+            return;
+        }
+        switch (hit)
+        {
+            case "refresh":
+                _poller.RefreshNow();
+                Invalidate();
+                break;
+            case "settings":
+                Close();
+                SettingsWindow.Open(_settings, _anchor);
+                break;
+            case "about":
+                try { Process.Start(new ProcessStartInfo("https://github.com/Riyoway/Tallybar") { UseShellExecute = true }); }
+                catch { }
+                break;
+            case "quit":
+                Application.Exit();
+                break;
+        }
+    }
+
+    // --- helpers ---
+
+    private static Color TextOn(Color bg)
+        => bg.GetBrightness() > 0.6 ? Color.FromArgb(18, 22, 28) : Color.White;
+
+    private static string TitleCase(string label)
+        => label.Length == 0 ? label : char.ToUpperInvariant(label[0]) + label[1..];
+
+    private static string Age(DateTimeOffset t)
+    {
+        TimeSpan d = DateTimeOffset.UtcNow - t;
+        if (d.TotalSeconds < 15) return "just now";
+        if (d.TotalMinutes < 1) return $"{(int)d.TotalSeconds}s ago";
+        if (d.TotalHours < 1) return $"{(int)d.TotalMinutes}m ago";
+        return $"{(int)d.TotalHours}h ago";
+    }
+
+    private static string Countdown(DateTimeOffset resetsAt)
+    {
+        TimeSpan t = resetsAt - DateTimeOffset.UtcNow;
+        if (t <= TimeSpan.Zero) return "moments";
+        if (t.TotalDays >= 2) return $"{(int)t.TotalDays}d {t.Hours}h";
+        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes:00}m";
+        return $"{t.Minutes}m";
     }
 
     private static void FillRounded(Graphics g, Brush brush, RectangleF r, float radius)
@@ -246,36 +429,5 @@ internal sealed class PopoverWindow : Form
         path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         g.FillPath(brush, path);
-    }
-
-    private static string FormatCountdown(DateTimeOffset resetsAt)
-    {
-        TimeSpan t = resetsAt - DateTimeOffset.UtcNow;
-        if (t <= TimeSpan.Zero) return "moments";
-        if (t.TotalDays >= 2) return $"{(int)t.TotalDays}d {t.Hours}h";
-        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes:00}m";
-        return $"{t.Minutes}m";
-    }
-
-    protected override void OnMouseMove(MouseEventArgs e)
-    {
-        base.OnMouseMove(e);
-        Cursor = _refreshRect.Contains(e.Location) || _settingsRect.Contains(e.Location)
-            ? Cursors.Hand : Cursors.Default;
-    }
-
-    protected override void OnMouseClick(MouseEventArgs e)
-    {
-        base.OnMouseClick(e);
-        if (_refreshRect.Contains(e.Location))
-        {
-            _poller.RefreshNow();
-            Invalidate();
-        }
-        else if (_settingsRect.Contains(e.Location))
-        {
-            Close();
-            SettingsWindow.Open(_settings, _anchor);
-        }
     }
 }
