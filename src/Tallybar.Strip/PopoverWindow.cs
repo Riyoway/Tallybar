@@ -362,7 +362,7 @@ internal sealed class PopoverWindow : Form
 
         Row("refresh", "Refresh", Icons.Refresh);
         Row("settings", "Settings", Icons.Settings);
-        Row("about", "About Tallybar", logoId: "github");
+        Row("about", "GitHub", logoId: "github");
         Row("quit", "Quit");
     }
 

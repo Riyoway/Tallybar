@@ -106,7 +106,7 @@ internal sealed class SettingsWindow : Form
             _rows.Add(new Toggle(p.DisplayName, () => _s.IsProviderEnabled(id), v => _s.SetProviderEnabled(id, v)));
         }
         string[] showIds = ["cycle", .. Providers.All.Select(p => p.Id)];
-        string[] showNames = ["Cycle all", .. Providers.All.Select(p => p.DisplayName)];
+        string[] showNames = ["Cycle enabled", .. Providers.All.Select(p => p.DisplayName)];
         _rows.Add(new Choice("Strip shows", showNames,
             () => Array.IndexOf(showIds, _s.StripProvider) is var i && i >= 0 ? i : 0,
             i => _s.StripProvider = showIds[i]));
