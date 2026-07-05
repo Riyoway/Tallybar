@@ -87,8 +87,11 @@ public sealed class Poller : IDisposable
                 }
                 catch (UnauthorizedAccessException)
                 {
+                    // A transient auth blip (e.g. the CLI mid-refresh of its token file) must
+                    // self-heal, so re-check every couple of minutes rather than stalling for
+                    // 30 min — otherwise the app looks stuck until it's restarted.
                     _latest[p.Id] = [new(p.Id, "session", double.NaN, null, now, FetchStatus.AuthError)];
-                    _nextDue[p.Id] = now + MaxBackoff; // creds won't fix themselves; re-check occasionally
+                    _nextDue[p.Id] = now + TimeSpan.FromMinutes(2);
                 }
                 catch (Exception e)
                 {

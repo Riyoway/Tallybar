@@ -27,7 +27,8 @@ public sealed class ClaudeProvider : IProvider
 
     public async Task<IReadOnlyList<UsageSnapshot>> FetchAsync(CancellationToken ct)
     {
-        string token = ReadAccessToken();
+        // Off the UI thread — the read may briefly sleep to ride out a CLI token rewrite.
+        string token = await Task.Run(ReadAccessToken, ct);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -95,28 +96,45 @@ public sealed class ClaudeProvider : IProvider
         // Deliberately no token refresh: the claude CLI owns this file and refreshes it
         // whenever it runs. If the token is expired we surface AuthError instead of
         // competing with the CLI over the credential file.
-        try
+        //
+        // The CLI rewrites this file when it refreshes the token; reading mid-write throws
+        // an IOException (locked) or JsonException (truncated). Those are transient, so
+        // retry a few times before declaring an auth failure — otherwise one unlucky read
+        // wrongly shows "sign-in needed" until the app restarts.
+        Exception? transient = null;
+        for (int attempt = 0; attempt < 4; attempt++)
         {
-            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(CredentialsPath));
-            // Token JSON is either wrapped in "claudeAiOauth" or at the top level.
-            JsonElement oauth = doc.RootElement.TryGetProperty("claudeAiOauth", out JsonElement wrapped)
-                ? wrapped : doc.RootElement;
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(File.ReadAllText(CredentialsPath));
+            }
+            catch (Exception e) when (e is IOException or JsonException)
+            {
+                transient = e;
+                Thread.Sleep(120);
+                continue;
+            }
 
-            // expiresAt is epoch milliseconds; treat "expires within 5 min" as expired.
-            if (oauth.TryGetProperty("expiresAt", out JsonElement exp) &&
-                exp.ValueKind == JsonValueKind.Number &&
-                DateTimeOffset.FromUnixTimeMilliseconds(exp.GetInt64())
-                    <= DateTimeOffset.UtcNow.AddMinutes(5))
-                throw new UnauthorizedAccessException("Claude OAuth token expired — run `claude` to refresh.");
+            using (doc)
+            {
+                // Token JSON is either wrapped in "claudeAiOauth" or at the top level.
+                JsonElement oauth = doc.RootElement.TryGetProperty("claudeAiOauth", out JsonElement wrapped)
+                    ? wrapped : doc.RootElement;
 
-            if (oauth.TryGetProperty("accessToken", out JsonElement tok) &&
-                tok.GetString() is { Length: > 0 } token)
-                return token;
+                // expiresAt is epoch milliseconds; treat "expires within 5 min" as expired.
+                if (oauth.TryGetProperty("expiresAt", out JsonElement exp) &&
+                    exp.ValueKind == JsonValueKind.Number &&
+                    DateTimeOffset.FromUnixTimeMilliseconds(exp.GetInt64())
+                        <= DateTimeOffset.UtcNow.AddMinutes(5))
+                    throw new UnauthorizedAccessException("Claude OAuth token expired — run `claude` to refresh.");
+
+                if (oauth.TryGetProperty("accessToken", out JsonElement tok) &&
+                    tok.GetString() is { Length: > 0 } token)
+                    return token;
+            }
+            throw new UnauthorizedAccessException("No Claude OAuth token found.");
         }
-        catch (Exception e) when (e is IOException or JsonException)
-        {
-            throw new UnauthorizedAccessException("Claude credentials unreadable.", e);
-        }
-        throw new UnauthorizedAccessException("No Claude OAuth token found.");
+        throw new UnauthorizedAccessException("Claude credentials unreadable.", transient);
     }
 }
