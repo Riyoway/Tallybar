@@ -41,6 +41,7 @@ public sealed class CodexProvider : IProvider
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.UserAgent.ParseAdd("Tallybar");
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
         if (accountId is not null)
             req.Headers.Add("ChatGPT-Account-Id", accountId);
 

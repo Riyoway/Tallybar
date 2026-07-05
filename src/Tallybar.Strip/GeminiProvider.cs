@@ -34,6 +34,7 @@ public sealed partial class GeminiProvider : IProvider
             Content = JsonContent.Create(new { }),
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
 
         using HttpResponseMessage res = await Http.SendAsync(req, ct);
         if (res.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)

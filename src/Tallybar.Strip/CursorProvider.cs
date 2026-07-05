@@ -34,6 +34,7 @@ public sealed class CursorProvider : IProvider
         using var req = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         req.Headers.Add("Cookie", cookie);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
 
         using HttpResponseMessage res = await Http.SendAsync(req, ct);
         if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)

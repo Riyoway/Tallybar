@@ -33,6 +33,7 @@ public sealed class ClaudeProvider : IProvider
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.Add("anthropic-beta", BetaHeader);
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
 
         using HttpResponseMessage res = await Http.SendAsync(req, ct);
         if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)

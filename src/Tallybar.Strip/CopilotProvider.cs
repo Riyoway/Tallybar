@@ -30,6 +30,7 @@ public sealed class CopilotProvider : IProvider
         req.Headers.Add("Editor-Plugin-Version", "copilot-chat/0.26.7");
         req.Headers.UserAgent.ParseAdd("GitHubCopilotChat/0.26.7");
         req.Headers.Add("X-Github-Api-Version", "2025-04-01");
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
 
         using HttpResponseMessage res = await Http.SendAsync(req, ct);
         if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)

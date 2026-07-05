@@ -28,6 +28,7 @@ internal sealed class StripWindow : Form
     private IntPtr _winEventHook;
     private NotifyIcon? _tray;
     private IntPtr _trayIconHandle;
+    private Icon? _trayManagedIcon;
     private bool _hiddenForFullscreen;
 
     /// <summary>Raised on WM_DISPLAYCHANGE so the owner can rebuild secondary strips.</summary>
@@ -234,11 +235,13 @@ internal sealed class StripWindow : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        // WinForms can recreate the handle (DPI/style changes), re-entering this method.
+        // Everything here must be idempotent or the tray icon and hooks would duplicate.
         HookTrayThread();
-        if (_isPrimary) SetupTray();
+        if (_isPrimary && _tray is null) SetupTray();
         RefreshFromPoller();
-        _reassert.Start();
-        _cycle.Start();
+        if (!_reassert.Enabled) _reassert.Start();
+        if (!_cycle.Enabled) _cycle.Start();
     }
 
     protected override void WndProc(ref Message m)
@@ -267,6 +270,13 @@ internal sealed class StripWindow : Form
 
     private void HookTrayThread()
     {
+        // Always drop an existing hook first so re-entry never leaks or duplicates hooks.
+        if (_winEventHook != IntPtr.Zero)
+        {
+            Native.UnhookWinEvent(_winEventHook);
+            _winEventHook = IntPtr.Zero;
+        }
+
         IntPtr tray = Native.FindWindowW("Shell_TrayWnd", null);
         if (tray == IntPtr.Zero) return;
 
@@ -278,11 +288,6 @@ internal sealed class StripWindow : Form
 
     private void RehookAndReposition()
     {
-        if (_winEventHook != IntPtr.Zero)
-        {
-            Native.UnhookWinEvent(_winEventHook);
-            _winEventHook = IntPtr.Zero;
-        }
         HookTrayThread();
         Reposition();
     }
@@ -787,7 +792,10 @@ internal sealed class StripWindow : Form
         IntPtr hIcon = bmp.GetHicon();
         try
         {
-            _tray.Icon = (Icon)Icon.FromHandle(hIcon).Clone();
+            var managed = (Icon)Icon.FromHandle(hIcon).Clone();
+            _tray.Icon = managed;
+            _trayManagedIcon?.Dispose(); // release the previous frame's managed icon
+            _trayManagedIcon = managed;
             _tray.Text = rows.Count == 0
                 ? "Tallybar"
                 : string.Join(" · ", rows.Select(r => r.Tip)) is var tip && tip.Length > 63
@@ -810,7 +818,8 @@ internal sealed class StripWindow : Form
             _cycle.Stop(); _cycle.Dispose();
             _anim.Stop(); _anim.Dispose();
             if (_winEventHook != IntPtr.Zero) Native.UnhookWinEvent(_winEventHook);
-            _tray?.Dispose();
+            if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); }
+            _trayManagedIcon?.Dispose();
             if (_trayIconHandle != IntPtr.Zero) Native.DestroyIcon(_trayIconHandle);
         }
         base.Dispose(disposing);
