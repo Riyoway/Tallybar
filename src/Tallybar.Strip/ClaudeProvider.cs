@@ -19,7 +19,13 @@ public sealed class ClaudeProvider : IProvider
     private static string CredentialsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json");
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    // Recycle pooled connections so a server-dropped idle connection can't fail the next
+    // poll (a common cause of intermittent "stale" in a long-running app).
+    private static readonly HttpClient Http = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+    })
+    { Timeout = TimeSpan.FromSeconds(30) };
 
     public string Id => "claude";
     public string DisplayName => "Claude";

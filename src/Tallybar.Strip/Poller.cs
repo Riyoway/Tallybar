@@ -9,8 +9,6 @@ namespace Tallybar;
 /// </summary>
 public sealed class Poller : IDisposable
 {
-    private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
-
     private readonly Settings _settings;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Dictionary<string, List<UsageSnapshot>> _latest = [];
@@ -103,7 +101,7 @@ public sealed class Poller : IDisposable
                     else
                         _latest[p.Id] = [new(p.Id, "session", double.NaN, null, now, FetchStatus.Offline)];
 
-                    // Rate-limited: a fixed cool-off beats exponential guessing.
+                    // Rate-limited: a fixed cool-off beats guessing.
                     if (e is System.Net.Http.HttpRequestException
                         { StatusCode: System.Net.HttpStatusCode.TooManyRequests })
                     {
@@ -111,8 +109,10 @@ public sealed class Poller : IDisposable
                     }
                     else
                     {
-                        double factor = Math.Min(Math.Pow(2, fails), MaxBackoff / baseInterval);
-                        _nextDue[p.Id] = now + baseInterval * factor;
+                        // Gentle linear backoff capped at 5 min, so a transient failure
+                        // recovers in about a minute instead of stalling on "stale" for
+                        // up to half an hour.
+                        _nextDue[p.Id] = now + baseInterval * Math.Min(fails, 5);
                     }
                 }
             }
