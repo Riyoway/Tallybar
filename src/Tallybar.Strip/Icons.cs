@@ -15,6 +15,7 @@ internal static class Icons
     public const string Close = "";   // ChromeClose
     public const string Add = "";      // plus
     public const string Remove = "";   // minus
+    public const string Quit = "";     // PowerButton
 
     private static string? _family;
 

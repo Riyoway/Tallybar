@@ -363,7 +363,7 @@ internal sealed class PopoverWindow : Form
         Row("refresh", "Refresh", Icons.Refresh);
         Row("settings", "Settings", Icons.Settings);
         Row("about", "GitHub", logoId: "github");
-        Row("quit", "Quit");
+        Row("quit", "Quit", Icons.Quit);
     }
 
     // --- input ---
