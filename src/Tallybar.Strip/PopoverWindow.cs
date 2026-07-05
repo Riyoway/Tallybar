@@ -201,10 +201,14 @@ internal sealed class PopoverWindow : Form
             _tabs.Add((tabRect, p.Id));
             bool isSel = p.Id == selected?.Id;
 
+            // Selected = a soft accent-tinted card with an accent outline (not a heavy
+            // solid fill); hover = a faint neutral tint. The logo keeps its brand colour.
             if (isSel)
             {
-                using var selBg = new SolidBrush(Accent);
-                FillRounded(g, selBg, tabRect, 9 * _sc);
+                using (var selBg = new SolidBrush(Color.FromArgb(_light ? 30 : 42, Accent)))
+                    FillRounded(g, selBg, tabRect, 9 * _sc);
+                using (var selEdge = new Pen(Color.FromArgb(_light ? 150 : 120, Accent)))
+                    StrokeRounded(g, selEdge, tabRect, 9 * _sc);
             }
             else if (_hover == "tab:" + p.Id)
             {
@@ -212,27 +216,23 @@ internal sealed class PopoverWindow : Form
                 FillRounded(g, hovBg, tabRect, 9 * _sc);
             }
 
-            Color fg = isSel ? TextOn(Accent) : _ink;
-
-            // Real brand logo, tinted to read on the current surface; monogram chip if absent.
+            // Real brand logo; monogram chip if absent.
             (string mono, Color brand) = Brand(p.Id);
             float tile = 22 * _sc;
             var tileRect = new RectangleF(x + (tabW - tile) / 2, top + 4 * _sc, tile, tile);
-            Color logoColor = isSel ? TextOn(Accent) : LogoColor(p.Id, brand);
 
-            if (!Logos.Draw(g, p.Id, tileRect, logoColor))
+            if (!Logos.Draw(g, p.Id, tileRect, LogoColor(p.Id, brand)))
             {
-                Color chip = isSel ? Color.FromArgb(70, TextOn(Accent)) : brand;
-                using (var tileBg = new SolidBrush(chip))
+                using (var tileBg = new SolidBrush(brand))
                     FillRounded(g, tileBg, tileRect, 6 * _sc);
                 using var fTile = new Font("Segoe UI", 9.5f * _sc, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var tb = new SolidBrush(isSel ? TextOn(Accent) : TextOn(brand));
+                using var tb = new SolidBrush(TextOn(brand));
                 var tfmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 g.DrawString(mono, fTile, tb, tileRect, tfmt);
             }
 
-            // Name.
-            using (var nb = new SolidBrush(fg))
+            // Name — accent-coloured when selected, so the tab reads as active.
+            using (var nb = new SolidBrush(isSel ? Accent : _ink))
                 g.DrawString(p.DisplayName, fName, nb,
                     new RectangleF(x, top + tile + 8 * _sc, tabW, fName.Height), fmt);
 
